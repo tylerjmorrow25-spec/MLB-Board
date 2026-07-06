@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Board — MLB EV Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --field:#0F2C1F;
+  --felt:#17392B;
+  --felt2:#123023;
+  --chalk:#F2EEE3;
+  --chalk-dim:rgba(242,238,227,.62);
+  --chalk-faint:rgba(242,238,227,.38);
+  --line:rgba(242,238,227,.14);
+  --amber:#FFB63B;
+  --amber-dim:rgba(255,182,59,.18);
+  --pos:#6FE3A0;
+  --neg:#FF8073;
+  --slate:#0B211714;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--field)}
+body{
+  font-family:'IBM Plex Sans',sans-serif;color:var(--chalk);
+  background:
+    radial-gradient(1200px 500px at 50% -200px, rgba(255,182,59,.07), transparent 60%),
+    var(--field);
+  min-height:100vh;padding:20px 16px 80px;
+}
+.wrap{max-width:1180px;margin:0 auto}
+h1,h2,h3,.disp{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.04em}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;border-bottom:2px solid var(--amber);padding-bottom:12px;margin-bottom:20px}
+header h1{font-size:34px;font-weight:700;color:var(--amber);line-height:1}
+header .sub{color:var(--chalk-dim);font-size:13px;letter-spacing:.02em}
+header .date{margin-left:auto;font-size:13px;color:var(--chalk-faint)}
+
+/* ---------- cards ---------- */
+.card{background:var(--felt);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+.card h2{font-size:15px;font-weight:600;color:var(--amber);margin-bottom:12px;letter-spacing:.09em;display:flex;align-items:center;gap:8px}
+.card h2 .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:none;letter-spacing:0;color:var(--chalk-faint);border:1px solid var(--line);border-radius:3px;padding:1px 6px;font-weight:400}
+.grid2{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px}
+@media(max-width:880px){.grid2{grid-template-columns:1fr}}
+
+/* ---------- controls ---------- */
+label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--chalk-faint);display:block;margin-bottom:4px}
+input[type=text],input[type=number],input[type=date],input[type=password],select{
+  width:100%;background:var(--felt2);border:1px solid var(--line);border-radius:5px;
+  color:var(--chalk);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:7px 9px;outline:none;
+}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+input[type=number]::-webkit-inner-spin-button{opacity:.4}
+button{
+  font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.08em;font-weight:600;
+  background:var(--amber);color:#231604;border:none;border-radius:5px;padding:9px 16px;font-size:14px;cursor:pointer;
+}
+button:hover{filter:brightness(1.08)}
+button.ghost{background:transparent;color:var(--amber);border:1px solid var(--amber)}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row>div{flex:1;min-width:130px}
+.hint{font-size:11.5px;color:var(--chalk-faint);margin-top:6px;line-height:1.45}
+.err{color:var(--neg);font-size:12.5px;margin-top:8px;white-space:pre-wrap}
+.ok{color:var(--pos);font-size:12.5px;margin-top:8px}
+
+/* ---------- game chips ---------- */
+#games{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chip{
+  background:var(--felt2);border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer;
+  font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);text-align:left;
+}
+.chip:hover{border-color:var(--amber)}
+.chip.sel{border-color:var(--amber);color:var(--chalk);background:var(--amber-dim)}
+.chip .t{color:var(--chalk-faint);font-size:10.5px;display:block;margin-top:2px}
+
+/* ---------- stat table ---------- */
+table.stats{width:100%;border-collapse:collapse;font-size:12.5px}
+table.stats td,table.stats th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right}
+table.stats td:first-child,table.stats th:first-child{text-align:left;color:var(--chalk-dim)}
+table.stats th{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.06em;font-size:12px;color:var(--amber);font-weight:600}
+table.stats td{font-family:'IBM Plex Mono',monospace}
+td input{width:72px;text-align:right;padding:4px 6px}
+
+/* ---------- sliders ---------- */
+.sl{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin-bottom:8px}
+.sl label{margin:0}
+.sl output{font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:right;color:var(--chalk)}
+input[type=range]{width:100%;accent-color:var(--amber);background:transparent}
+
+/* ---------- probability bars ---------- */
+.pline{margin-bottom:14px}
+.pline .names{display:flex;justify-content:space-between;font-family:'Saira Condensed',sans-serif;font-size:14px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.pline .bar{height:22px;border-radius:4px;overflow:hidden;display:flex;border:1px solid var(--line)}
+.pline .bar .h{background:var(--amber);height:100%}
+.pline .bar .t{background:rgba(242,238,227,.22);height:100%}
+.pline .bar .a{background:var(--felt2);height:100%;flex:1}
+.pline .nums{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);margin-top:3px}
+
+/* ---------- the board ---------- */
+.board{overflow-x:auto}
+table.board-t{width:100%;border-collapse:collapse;min-width:760px}
+table.board-t th{
+  font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.07em;font-size:12.5px;
+  color:var(--amber);font-weight:600;padding:6px 8px;border-bottom:2px solid var(--amber);text-align:center;white-space:nowrap
+}
+table.board-t th:first-child{text-align:left}
+table.board-t td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+table.board-t td:first-child{text-align:left;font-size:12.5px}
+.outc{color:var(--chalk)}
+.outc small{display:block;color:var(--chalk-faint);font-family:'IBM Plex Mono',monospace;font-size:10.5px}
+.cell input{width:64px;text-align:center;padding:5px 4px;font-size:13px;background:#0B2418;border-radius:4px}
+.cell .ev{display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;margin-top:3px;color:var(--chalk-faint)}
+.cell .ev.pos{color:var(--pos)}
+.cell .ev.neg{color:var(--neg)}
+.cell.best input{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber),0 0 10px rgba(255,182,59,.35);color:var(--amber)}
+.mprob{font-family:'IBM Plex Mono',monospace;color:var(--chalk);font-size:13px}
+.mprob small{display:block;color:var(--chalk-faint);font-size:10px}
+.kelly{background:var(--felt2);border:1px dashed var(--line);border-radius:6px;padding:10px 12px;margin:10px 0 22px;font-size:12.5px;line-height:1.6}
+.kelly b{color:var(--amber)}
+.kelly .stake{font-family:'IBM Plex Mono',monospace;color:var(--pos);font-weight:600}
+.kelly.none{color:var(--chalk-faint)}
+.mkt-title{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.08em;font-size:14px;color:var(--chalk);margin:18px 0 6px;display:flex;gap:10px;align-items:baseline}
+.mkt-title .note{font-family:'IBM Plex Sans',sans-serif;text-transform:none;letter-spacing:0;font-size:11.5px;color:var(--chalk-faint)}
+footer{margin-top:28px;color:var(--chalk-faint);font-size:11.5px;line-height:1.6;border-top:1px solid var(--line);padding-top:14px}
+.hidden{display:none}
+details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',sans-serif;text-transform:uppercase;font-size:13px;letter-spacing:.07em;margin-bottom:8px}
+@media(prefers-reduced-motion:no-preference){
+  .cell.best input{transition:box-shadow .3s}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>The Board</h1>
+  <div class="sub">MLB expected-value model · decimal odds · AUD</div>
+  <div class="date mono" id="hdrDate"></div>
+</header>
+
+<!-- SETTINGS -->
+<div class="card">
+  <h2>Setup <span class="tag">saved in this browser</span></h2>
+  <div class="row">
+    <div><label>Bankroll (AUD)</label><input type="number" id="bankroll" value="1000" min="0" step="50"></div>
+    <div><label>Kelly fraction</label>
+      <select id="kellyFrac">
+        <option value="0.25" selected>Quarter Kelly (recommended)</option>
+        <option value="0.5">Half Kelly</option>
+        <option value="1">Full Kelly</option>
+      </select>
+    </div>
+    <div style="flex:2;min-width:220px"><label>Odds proxy URL (Apps Script)</label><input type="text" id="proxyUrl" placeholder="https://script.google.com/macros/s/.../exec"></div>
+  </div>
+  <p class="hint">The proxy keeps your Odds API key off GitHub. Leave it blank to enter odds by hand — the model works either way.</p>
+</div>
+
+<!-- GAME PICKER -->
+<div class="card">
+  <h2>Slate</h2>
+  <div class="row">
+    <div style="max-width:180px"><label>Date (local)</label><input type="date" id="slateDate"></div>
+    <div style="max-width:160px"><button id="loadSlate">Load games</button></div>
+  </div>
+  <div id="games"></div>
+  <div class="err hidden" id="slateErr"></div>
+</div>
+
+<div class="grid2">
+<div>
+  <!-- AUTO STATS -->
+  <div class="card">
+    <h2>Team &amp; starter numbers <span class="tag">MLB StatsAPI · editable</span></h2>
+    <div id="statsBody"><p class="hint">Pick a game above and the season numbers pull in automatically. Every figure below stays editable if you want to override.</p></div>
+  </div>
+
+  <!-- WEATHER -->
+  <div class="card">
+    <h2>Conditions <span class="tag">Open-Meteo</span></h2>
+    <div id="wxBody"><p class="hint">Ballpark forecast at first pitch loads with the game.</p></div>
+  </div>
+
+  <!-- VARIANCE -->
+  <div class="card">
+    <h2>Your read <span class="tag">shifts win probability</span></h2>
+    <div class="sl"><label>Lineup / injuries</label><input type="range" id="vLineup" min="-5" max="5" value="0" step="1"><output id="oLineup">0</output></div>
+    <div class="sl"><label>Recent form</label><input type="range" id="vForm" min="-5" max="5" value="0" step="1"><output id="oForm">0</output></div>
+    <div class="sl"><label>Rest / travel</label><input type="range" id="vRest" min="-5" max="5" value="0" step="1"><output id="oRest">0</output></div>
+    <div class="sl"><label>Bullpen state</label><input type="range" id="vPen" min="-5" max="5" value="0" step="1"><output id="oPen">0</output></div>
+    <p class="hint">Positive favours the <b>home</b> side, negative the away side. Each notch moves the win probability roughly one point. Use sparingly — the sharpest number is usually the boring one.</p>
+  </div>
+</div>
+
+<div>
+  <!-- MODEL OUTPUT -->
+  <div class="card">
+    <h2>Model output</h2>
+    <div id="modelBody"><p class="hint">Waiting on a game.</p></div>
+    <details id="workings" class="hidden" style="margin-top:10px">
+      <summary>Show the workings</summary>
+      <div id="workBody" class="hint" style="font-family:'IBM Plex Mono',monospace;font-size:11.5px"></div>
+    </details>
+  </div>
+
+  <!-- ODDS FETCH -->
+  <div class="card">
+    <h2>Prices <span class="tag">Sportsbet · TAB · PointsBet · BetRight · bet365</span></h2>
+    <div class="row">
+      <div style="max-width:200px"><button id="fetchOdds" disabled>Fetch live prices</button></div>
+      <div style="max-width:200px"><button class="ghost" id="clearOdds">Clear prices</button></div>
+    </div>
+    <p class="hint" id="oddsStatus">Fetching fills the board below from your proxy. Any cell can also be typed in straight off the app — decimal odds.</p>
+    <div class="err hidden" id="oddsErr"></div>
+  </div>
+</div>
+</div>
+
+<!-- THE BOARD -->
+<div class="card board">
+  <h2>Edge board</h2>
+  <div id="boardBody"><p class="hint">Pick a game to build the board.</p></div>
+</div>
+
+<footer>
+  Model probabilities are estimates built from season-level numbers — they don't know about tonight's lineup card until you tell them. Treat edges under ~2% as noise, stake to the quarter-Kelly figure at most, and if it stops being fun, <a href="https://www.gamblinghelponline.org.au" style="color:var(--chalk-dim)">Gambling Help Online</a> is free 24/7.
+</footer>
+
+</div>
+
+<script>
+/* ============================================================
+   CONFIG
+============================================================ */
+const BOOKS = [
+  {key:'sportsbet', name:'Sportsbet'},
+  {key:'tab',       name:'TAB'},
+  {key:'pointsbetau',name:'PointsBet'},
+  {key:'betright',  name:'BetRight'},
+  {key:'bet365',    name:'bet365', alt:['bet365_au']}
+];
+const LEAGUE_ERA = 4.20;          // fallback league ERA
+const UNEARNED = 1.08;            // ERA -> total runs allowed bump
+const STARTER_W = 0.55;           // starter share of a full game
+const HFA_LOGODDS = 0.16;         // ~54% home baseline
+const HFA_F3 = 0.08;
+const SLIDER_LO = 0.041;          // ~1 point of win prob per notch
+
+const PARKS = {
+ 108:{n:'Angel Stadium',la:33.8003,lo:-117.8827,roof:'open'},
+ 109:{n:'Chase Field',la:33.4455,lo:-112.0667,roof:'retract'},
+ 110:{n:'Camden Yards',la:39.2839,lo:-76.6217,roof:'open'},
+ 111:{n:'Fenway Park',la:42.3467,lo:-71.0972,roof:'open'},
+ 112:{n:'Wrigley Field',la:41.9484,lo:-87.6553,roof:'open'},
+ 113:{n:'Great American',la:39.0975,lo:-84.5066,roof:'open'},
+ 114:{n:'Progressive Field',la:41.4962,lo:-81.6852,roof:'open'},
+ 115:{n:'Coors Field',la:39.7559,lo:-104.9942,roof:'open'},
+ 116:{n:'Comerica Park',la:42.3390,lo:-83.0485,roof:'open'},
+ 117:{n:'Daikin Park',la:29.7573,lo:-95.3555,roof:'retract'},
+ 118:{n:'Kauffman Stadium',la:39.0517,lo:-94.4803,roof:'open'},
+ 119:{n:'Dodger Stadium',la:34.0739,lo:-118.2400,roof:'open'},
+ 120:{n:'Nationals Park',la:38.8730,lo:-77.0074,roof:'open'},
+ 121:{n:'Citi Field',la:40.7571,lo:-73.8458,roof:'open'},
+ 133:{n:'Sutter Health Park',la:38.5802,lo:-121.5133,roof:'open'},
+ 134:{n:'PNC Park',la:40.4469,lo:-80.0057,roof:'open'},
+ 135:{n:'Petco Park',la:32.7076,lo:-117.1570,roof:'open'},
+ 136:{n:'T-Mobile Park',la:47.5914,lo:-122.3325,roof:'retract'},
+ 137:{n:'Oracle Park',la:37.7786,lo:-122.3893,roof:'open'},
+ 138:{n:'Busch Stadium',la:38.6226,lo:-90.1928,roof:'open'},
+ 139:{n:'Tropicana Field',la:27.7683,lo:-82.6534,roof:'dome'},
+ 140:{n:'Globe Life Field',la:32.7473,lo:-97.0842,roof:'retract'},
+ 141:{n:'Rogers Centre',la:43.6414,lo:-79.3894,roof:'retract'},
+ 142:{n:'Target Field',la:44.9817,lo:-93.2776,roof:'open'},
+ 143:{n:'Citizens Bank Park',la:39.9061,lo:-75.1665,roof:'open'},
+ 144:{n:'Truist Park',la:33.8908,lo:-84.4678,roof:'open'},
+ 145:{n:'Rate Field',la:41.8299,lo:-87.6338,roof:'open'},
+ 146:{n:'loanDepot park',la:25.7781,lo:-80.2196,roof:'retract'},
+ 147:{n:'Yankee Stadium',la:40.8296,lo:-73.9262,roof:'open'},
+ 158:{n:'AmFam Field',la:43.0280,lo:-87.9712,roof:'retract'}
+};
+
+/* ============================================================
+   STATE
+============================================================ */
+const S = {
+  game:null,           // selected game (schedule object)
+  season:null,
+  inputs:{},           // editable model numbers
+  wx:{tempC:21, windK:0, windDir:'-', mode:'auto', roofClosed:false},
+  odds:{}              // odds[marketKey][outcomeIdx][bookKey] = decimal
+};
+const $ = id => document.getElementById(id);
+const fmtP = p => (p*100).toFixed(1)+'%';
+
+/* persist settings */
+['bankroll','kellyFrac','proxyUrl'].forEach(id=>{
+  const el=$(id); const saved=localStorage.getItem('board_'+id);
+  if(saved!==null) el.value=saved;
+  el.addEventListener('change',()=>{localStorage.setItem('board_'+id,el.value); render();});
+});
+
+/* ============================================================
+   SLATE
+============================================================ */
+const today=new Date(); $('slateDate').value = today.toISOString().slice(0,10);
+$('hdrDate').textContent = today.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+$('loadSlate').onclick = loadSlate;
+async function loadSlate(){
+  const d=$('slateDate').value; $('slateErr').classList.add('hidden');
+  $('games').innerHTML='<span class="hint">Loading…</span>';
+  try{
+    const r=await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${d}&hydrate=probablePitcher,team`);
+    const j=await r.json();
+    const games=(j.dates[0]?.games)||[];
+    S.season = j.dates[0]?.games[0]?.season || new Date(d).getFullYear();
+    if(!games.length){$('games').innerHTML='<span class="hint">No games on that date.</span>';return;}
+    $('games').innerHTML='';
+    games.forEach(g=>{
+      const b=document.createElement('button');
+      b.className='chip';
+      const t=new Date(g.gameDate).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'});
+      b.innerHTML=`${g.teams.away.team.name} @ ${g.teams.home.team.name}<span class="t">${t} AEST · ${g.status.detailedState}</span>`;
+      b.onclick=()=>selectGame(g,b);
+      $('games').appendChild(b);
+    });
+  }catch(e){
+    $('slateErr').textContent='Could not reach MLB StatsAPI: '+e.message;
+    $('slateErr').classList.remove('hidden'); $('games').innerHTML='';
+  }
+}
+
+async function selectGame(g,btn){
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('sel'));
+  btn.classList.add('sel');
+  S.game=g; S.odds={};
+  $('fetchOdds').disabled=false;
+  $('statsBody').innerHTML='<p class="hint">Pulling season numbers…</p>';
+  $('wxBody').innerHTML='<p class="hint">Pulling forecast…</p>';
+  await Promise.all([loadStats(g), loadWeather(g)]);
+  render();
+}
+
+/* ============================================================
+   STATS (MLB StatsAPI)
+============================================================ */
+async function teamRuns(teamId){
+  const yr=S.season;
+  const [h,p]=await Promise.all([
+    fetch(`https://statsapi.mlb.com/api/v1/teams/${teamId}/stats?stats=season&group=hitting&season=${yr}`).then(r=>r.json()),
+    fetch(`https://statsapi.mlb.com/api/v1/teams/${teamId}/stats?stats=season&group=pitching&season=${yr}`).then(r=>r.json())
+  ]);
+  const hs=h.stats?.[0]?.splits?.[0]?.stat||{};
+  const ps=p.stats?.[0]?.splits?.[0]?.stat||{};
+  const g=Number(hs.gamesPlayed)||1;
+  return {
+    rsPg:(Number(hs.runs)||0)/g,
+    raPg:(Number(ps.runs)||0)/g,
+    era:Number(ps.era)||LEAGUE_ERA,
+    g
+  };
+}
+async function pitcherEra(pid){
+  if(!pid) return null;
+  const r=await fetch(`https://statsapi.mlb.com/api/v1/people/${pid}?hydrate=stats(group=[pitching],type=[season],season=${S.season})`);
+  const j=await r.json();
+  const st=j.people?.[0]?.stats?.[0]?.splits?.[0]?.stat;
+  return st?{era:Number(st.era)||LEAGUE_ERA, ip:st.inningsPitched, name:j.people[0].fullName}:null;
+}
+
+async function loadStats(g){
+  try{
+    const hId=g.teams.home.team.id, aId=g.teams.away.team.id;
+    const hP=g.teams.home.probablePitcher, aP=g.teams.away.probablePitcher;
+    const [hT,aT,hS,aS]=await Promise.all([
+      teamRuns(hId), teamRuns(aId),
+      pitcherEra(hP?.id), pitcherEra(aP?.id)
+    ]);
+    S.inputs={
+      homeName:g.teams.home.team.name, awayName:g.teams.away.team.name,
+      hRs:hT.rsPg, hRa:hT.raPg, aRs:aT.rsPg, aRa:aT.raPg,
+      hWpct:g.teams.home.leagueRecord ? Number(g.teams.home.leagueRecord.pct):null,
+      aWpct:g.teams.away.leagueRecord ? Number(g.teams.away.leagueRecord.pct):null,
+      hSpEra:hS?hS.era:LEAGUE_ERA, aSpEra:aS?aS.era:LEAGUE_ERA,
+      hSpName:hS?hS.name:(hP?hP.fullName:'TBA'), aSpName:aS?aS.name:(aP?aP.fullName:'TBA'),
+      lgEra:LEAGUE_ERA
+    };
+    renderStats();
+  }catch(e){
+    $('statsBody').innerHTML=`<div class="err">Stats fetch failed: ${e.message}. You can still type numbers in below.</div>`;
+    S.inputs={homeName:g.teams.home.team.name, awayName:g.teams.away.team.name,
+      hRs:4.5,hRa:4.5,aRs:4.5,aRa:4.5,hSpEra:LEAGUE_ERA,aSpEra:LEAGUE_ERA,
+      hSpName:'TBA',aSpName:'TBA',lgEra:LEAGUE_ERA};
+    renderStats();
+  }
+}
+
+function numCell(key,step){
+  return `<td><input type="number" step="${step||0.01}" data-k="${key}" value="${S.inputs[key].toFixed(2)}"></td>`;
+}
+function renderStats(){
+  const i=S.inputs;
+  $('statsBody').innerHTML=`
+  <table class="stats">
+    <tr><th></th><th>${i.awayName} (away)</th><th>${i.homeName} (home)</th></tr>
+    <tr><td>Runs scored / game</td>${numCell('aRs')}${numCell('hRs')}</tr>
+    <tr><td>Runs allowed / game</td>${numCell('aRa')}${numCell('hRa')}</tr>
+    <tr><td>Starter</td>
+      <td class="mono" style="font-size:11px">${i.aSpName}</td>
+      <td class="mono" style="font-size:11px">${i.hSpName}</td></tr>
+    <tr><td>Starter ERA</td>${numCell('aSpEra')}${numCell('hSpEra')}</tr>
+    <tr><td>League ERA (baseline)</td><td></td>${numCell('lgEra')}</tr>
+  </table>`;
+  $('statsBody').querySelectorAll('input').forEach(el=>{
+    el.addEventListener('change',()=>{S.inputs[el.dataset.k]=Number(el.value)||0; render();});
+  });
+}
+
+/* ============================================================
+   WEATHER (Open-Meteo)
+============================================================ */
+function windArrow(deg){const a=['N','NE','E','SE','S','SW','W','NW'];return a[Math.round(deg/45)%8]}
+async function loadWeather(g){
+  const park=PARKS[g.teams.home.team.id];
+  if(!park){$('wxBody').innerHTML='<p class="hint">Unknown park — set conditions manually below.</p>';renderWx(null);return;}
+  try{
+    const gd=new Date(g.gameDate);
+    const day=gd.toISOString().slice(0,10);
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${park.la}&longitude=${park.lo}&hourly=temperature_2m,wind_speed_10m,wind_direction_10m&start_date=${day}&end_date=${day}&timezone=UTC`);
+    const j=await r.json();
+    const hr=gd.getUTCHours();
+    const idx=Math.min(hr, j.hourly.time.length-1);
+    S.wx.tempC=Math.round(j.hourly.temperature_2m[idx]);
+    S.wx.windK=Math.round(j.hourly.wind_speed_10m[idx]);
+    S.wx.windDir=windArrow(j.hourly.wind_direction_10m[idx]);
+    S.wx.roofClosed = park.roof==='dome';
+    renderWx(park);
+  }catch(e){ renderWx(park,'Forecast unavailable — set manually.'); }
+}
+function renderWx(park,msg){
+  const roofSel = park && park.roof!=='open'
+    ? `<div><label>Roof</label><select id="wxRoof"><option value="closed"${S.wx.roofClosed?' selected':''}>Closed</option><option value="open"${!S.wx.roofClosed?' selected':''}>Open</option></select></div>` : '';
+  $('wxBody').innerHTML=`
+    ${park?`<p class="hint" style="margin-bottom:8px">${park.n} · roof: ${park.roof}${S.wx.windDir!=='-'?` · wind from ${S.wx.windDir}`:''}</p>`:''}
+    ${msg?`<p class="hint">${msg}</p>`:''}
+    <div class="row">
+      <div><label>Temp (°C)</label><input type="number" id="wxTemp" value="${S.wx.tempC}"></div>
+      <div><label>Wind (km/h)</label><input type="number" id="wxWind" value="${S.wx.windK}"></div>
+      <div><label>Wind effect</label>
+        <select id="wxMode">
+          <option value="neutral">Neutral / cross</option>
+          <option value="out">Blowing out</option>
+          <option value="in">Blowing in</option>
+        </select></div>
+      ${roofSel}
+    </div>
+    <p class="hint">Warm air and wind out lift run scoring; a closed roof neutralises the lot. This mostly moves the 3-innings and run line numbers.</p>`;
+  $('wxTemp').onchange=e=>{S.wx.tempC=Number(e.target.value);render()};
+  $('wxWind').onchange=e=>{S.wx.windK=Number(e.target.value);render()};
+  $('wxMode').onchange=e=>{S.wx.mode=e.target.value;render()};
+  const rf=$('wxRoof'); if(rf) rf.onchange=e=>{S.wx.roofClosed=e.target.value==='closed';render()};
+}
+
+/* sliders */
+[['vLineup','oLineup'],['vForm','oForm'],['vRest','oRest'],['vPen','oPen']].forEach(([i,o])=>{
+  $(i).addEventListener('input',()=>{$(o).textContent=$(i).value>0?'+'+$(i).value:$(i).value;render();});
+});
+
+/* ============================================================
+   MODEL
+============================================================ */
+function poisPmf(l,max){const out=[];let p=Math.exp(-l);out.push(p);for(let k=1;k<=max;k++){p*=l/k;out.push(p);}return out;}
+
+function runEnvironment(){
+  if(S.wx.roofClosed) return 1;
+  let m=1+0.005*(S.wx.tempC-21);
+  const w=S.wx.windK;
+  if(S.wx.mode==='out') m*=1+0.003*w;
+  if(S.wx.mode==='in')  m*=1-0.003*w;
+  return Math.max(.8,Math.min(1.25,m));
+}
+
+function model(){
+  const i=S.inputs; if(!i.homeName) return null;
+  const env=runEnvironment();
+  const lg=i.lgEra||LEAGUE_ERA;
+
+  // blended runs-allowed rate: starter share on his ERA, rest on team rate
+  const hAllow = STARTER_W*(i.hSpEra*UNEARNED) + (1-STARTER_W)*i.hRa;
+  const aAllow = STARTER_W*(i.aSpEra*UNEARNED) + (1-STARTER_W)*i.aRa;
+
+  let rH = ((i.hRs + aAllow)/2)*env;   // expected home runs
+  let rA = ((i.aRs + hAllow)/2)*env;   // expected away runs
+  rH=Math.max(1.5,rH); rA=Math.max(1.5,rA);
+
+  // pythagenpat + home field + sliders (log-odds space)
+  const x=Math.pow(rH+rA,0.287);
+  const pRaw=Math.pow(rH,x)/(Math.pow(rH,x)+Math.pow(rA,x));
+  const slid=(+$('vLineup').value + +$('vForm').value + +$('vRest').value + +$('vPen').value)*SLIDER_LO;
+  const lo=Math.log(pRaw/(1-pRaw))+HFA_LOGODDS+slid;
+  const pHome=1/(1+Math.exp(-lo));
+
+  // ---- full-game margin distribution: calibrate poisson pair to pHome ----
+  let f=1, lof=-1.2, hif=1.2;
+  const condWin=(lh,la)=>{
+    const ph=poisPmf(lh,24), pa=poisPmf(la,24);
+    let win=0,tie=0;
+    for(let h=0;h<=24;h++)for(let a=0;a<=24;a++){
+      const pr=ph[h]*pa[a];
+      if(h>a)win+=pr; else if(h===a)tie+=pr;
+    }
+    return {win:win/(1-tie), ph, pa, tie};
+  };
+  for(let it=0;it<24;it++){
+    f=(lof+hif)/2;
+    const t=condWin(rH*Math.exp(f), rA*Math.exp(-f)).win;
+    if(t<pHome)lof=f; else hif=f;
+  }
+  const lh=rH*Math.exp(f), la=rA*Math.exp(-f);
+  const ph=poisPmf(lh,24), pa=poisPmf(la,24);
+  let hBy1=0,hBy2=0,aBy1=0,aBy2=0,tie=0;
+  for(let h=0;h<=24;h++)for(let a=0;a<=24;a++){
+    const pr=ph[h]*pa[a], d=h-a;
+    if(d===0)tie+=pr; else if(d===1)hBy1+=pr; else if(d>=2)hBy2+=pr;
+    else if(d===-1)aBy1+=pr; else aBy2+=pr;
+  }
+  const sc=1/(1-tie);
+  hBy1*=sc;hBy2*=sc;aBy1*=sc;aBy2*=sc;
+  // walk-off truncation: home wins land on 1-run margins more often
+  const shift=hBy2*0.10; hBy2-=shift; hBy1+=shift;
+
+  // ---- first 3 innings (starters only) ----
+  const h3=((i.hRs + i.aSpEra*UNEARNED)/2)*env*(3/9);
+  const a3=((i.aRs + i.hSpEra*UNEARNED)/2)*env*(3/9);
+  const lo3=Math.log(h3/a3)+HFA_F3;             // small HFA via rate tilt
+  const l3h=Math.sqrt(h3*a3)*Math.exp(lo3/2), l3a=Math.sqrt(h3*a3)*Math.exp(-lo3/2);
+  const p3h=poisPmf(l3h,15), p3a=poisPmf(l3a,15);
+  let f3H=0,f3A=0,f3T=0;
+  for(let h=0;h<=15;h++)for(let a=0;a<=15;a++){
+    const pr=p3h[h]*p3a[a];
+    if(h>a)f3H+=pr; else if(h<a)f3A+=pr; else f3T+=pr;
+  }
+
+  return {
+    pHome, pAway:1-pHome, rH, rA, env,
+    rl:{hCover:hBy2, hPlus:hBy2+hBy1+aBy1, aCover:aBy2, aPlus:aBy2+aBy1+hBy1},
+    f3:{h:f3H, a:f3A, t:f3T, lam:[l3h,l3a]},
+    workings:{hAllow,aAllow,pRaw,slid,lg}
+  };
+}
+
+/* ============================================================
+   MARKETS + BOARD
+============================================================ */
+function markets(m){
+  const i=S.inputs;
+  return [
+    {key:'h2h', title:'Head to head', note:'full game, extras included',
+      outcomes:[
+        {id:'h2h_home', label:i.homeName, sub:'home', p:m.pHome},
+        {id:'h2h_away', label:i.awayName, sub:'away', p:m.pAway}
+      ]},
+    {key:'rl', title:'Run line', note:'±1.5 · margin model with walk-off adjustment',
+      outcomes:[
+        {id:'rl_hm', label:`${i.homeName} −1.5`, sub:'home wins by 2+', p:m.rl.hCover},
+        {id:'rl_hp', label:`${i.homeName} +1.5`, sub:'', p:m.rl.hPlus},
+        {id:'rl_am', label:`${i.awayName} −1.5`, sub:'away wins by 2+', p:m.rl.aCover},
+        {id:'rl_ap', label:`${i.awayName} +1.5`, sub:'', p:m.rl.aPlus}
+      ]},
+    {key:'f3', title:'3 innings line', note:`−0.5 / +0.5 · starters only · tie prob ${fmtP(m.f3.t)}`,
+      outcomes:[
+        {id:'f3_h', label:`${i.homeName} −0.5`, sub:'leads after 3', p:m.f3.h},
+        {id:'f3_a', label:`${i.awayName} +0.5`, sub:'leads or tied after 3', p:m.f3.a+m.f3.t}
+      ]}
+  ];
+}
+
+function render(){
+  const m=model();
+  if(!m){return;}
+  /* model panel */
+  const i=S.inputs;
+  const barH=(m.pHome*100).toFixed(1);
+  $('modelBody').innerHTML=`
+    <div class="pline">
+      <div class="names"><span>${i.awayName}</span><span>${i.homeName}</span></div>
+      <div class="bar"><div class="a" style="flex:${m.pAway}"></div><div class="h" style="flex:${m.pHome}"></div></div>
+      <div class="nums"><span>${fmtP(m.pAway)}</span><span>fair H2H: ${(1/m.pAway).toFixed(2)} / ${(1/m.pHome).toFixed(2)}</span><span>${fmtP(m.pHome)}</span></div>
+    </div>
+    <table class="stats">
+      <tr><td>Expected runs</td><td>${m.rA.toFixed(2)}</td><td>${m.rH.toFixed(2)}</td></tr>
+      <tr><td>Run environment (weather)</td><td colspan="2">×${m.env.toFixed(3)}</td></tr>
+      <tr><td>Home −1.5 / +1.5</td><td colspan="2">${fmtP(m.rl.hCover)} / ${fmtP(m.rl.hPlus)}</td></tr>
+      <tr><td>Lead after 3 (H / tie / A)</td><td colspan="2">${fmtP(m.f3.h)} / ${fmtP(m.f3.t)} / ${fmtP(m.f3.a)}</td></tr>
+    </table>`;
+  $('workings').classList.remove('hidden');
+  $('workBody').innerHTML=
+    `blended RA: home ${m.workings.hAllow.toFixed(2)}, away ${m.workings.aAllow.toFixed(2)} (starter ${Math.round(STARTER_W*100)}% weight, ERA ×${UNEARNED} for unearned runs)<br>`+
+    `pythagenpat raw home ${fmtP(m.workings.pRaw)} → +HFA ${HFA_LOGODDS} log-odds ${m.workings.slid?`→ sliders ${m.workings.slid>0?'+':''}${m.workings.slid.toFixed(3)}`:''} → <b>${fmtP(m.pHome)}</b><br>`+
+    `margin + F3 via Poisson (F3 λ: ${m.f3.lam[0].toFixed(2)} / ${m.f3.lam[1].toFixed(2)})`;
+
+  renderBoard(m);
+}
+
+function renderBoard(m){
+  const bank=Number($('bankroll').value)||0;
+  const kf=Number($('kellyFrac').value);
+  let html='';
+  markets(m).forEach(mk=>{
+    html+=`<div class="mkt-title">${mk.title}<span class="note">${mk.note}</span></div>`;
+    html+=`<table class="board-t"><tr><th>Outcome</th><th>Model<br>fair</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
+    const kellyRecs=[];
+    mk.outcomes.forEach(o=>{
+      const row=S.odds[o.id]||{};
+      const prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1);
+      const best=prices.length?Math.max(...prices):null;
+      html+=`<tr><td class="outc">${o.label}${o.sub?`<small>${o.sub}</small>`:''}</td>`;
+      html+=`<td class="mprob">${fmtP(o.p)}<small>$${(1/o.p).toFixed(2)}</small></td>`;
+      BOOKS.forEach(b=>{
+        const v=row[b.key]||'';
+        const ev=v>1?(o.p*v-1):null;
+        const isBest=best!==null&&v===best;
+        html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-oid="${o.id}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
+          (ev!==null?`<span class="ev ${ev>=0?'pos':'neg'}">${ev>=0?'+':''}${(ev*100).toFixed(1)}%</span>`:'<span class="ev">&nbsp;</span>')+`</td>`;
+      });
+      html+='</tr>';
+      if(best&&(o.p*best-1)>0){
+        const kFull=(o.p*best-1)/(best-1);
+        const stake=bank*kFull*kf;
+        const bookName=BOOKS.find(b=>row[b.key]===best).name;
+        kellyRecs.push(`<b>${o.label}</b> @ $${best.toFixed(2)} (${bookName}) — edge ${((o.p*best-1)*100).toFixed(1)}%, full Kelly ${(kFull*100).toFixed(1)}% → stake <span class="stake">$${stake.toFixed(0)}</span>`);
+      }
+    });
+    html+='</table>';
+    html+= kellyRecs.length
+      ? `<div class="kelly">${kellyRecs.join('<br>')}</div>`
+      : `<div class="kelly none">No positive-EV price on the board for this market yet.</div>`;
+  });
+  $('boardBody').innerHTML=html;
+  $('boardBody').querySelectorAll('input').forEach(el=>{
+    el.addEventListener('change',()=>{
+      const oid=el.dataset.oid, bk=el.dataset.book;
+      S.odds[oid]=S.odds[oid]||{};
+      S.odds[oid][bk]=Number(el.value)||null;
+      renderBoard(model());
+    });
+  });
+}
+
+$('clearOdds').onclick=()=>{S.odds={};const m=model();if(m)renderBoard(m);};
+
+/* ============================================================
+   ODDS FETCH (via Apps Script proxy)
+============================================================ */
+$('fetchOdds').onclick=fetchOdds;
+async function fetchOdds(){
+  const proxy=$('proxyUrl').value.trim();
+  $('oddsErr').classList.add('hidden');
+  if(!proxy){$('oddsErr').textContent='No proxy URL set — add it in Setup, or type prices in by hand.';$('oddsErr').classList.remove('hidden');return;}
+  if(!S.game)return;
+  $('oddsStatus').textContent='Fetching prices…';
+  try{
+    // 1. main markets (h2h + spreads) for the slate — 2 quota
+    const r=await fetch(`${proxy}?path=odds&markets=h2h,spreads`);
+    const games=await r.json();
+    if(games.error) throw new Error(games.error);
+    const hN=S.inputs.homeName, aN=S.inputs.awayName;
+    const ev=games.find(g=>g.home_team===hN&&g.away_team===aN);
+    if(!ev) throw new Error('Game not found in odds feed (may be too far out, or already started).');
+    ingestMain(ev,hN,aN);
+
+    // 2. first-3-innings via event endpoint — best effort
+    try{
+      const r3=await fetch(`${proxy}?path=event&eventId=${ev.id}&markets=h2h_1st_3_innings`);
+      const e3=await r3.json();
+      if(!e3.error) ingestF3(e3,hN,aN);
+    }catch(_){/* AU coverage of F3 is thin — manual entry covers it */}
+
+    $('oddsStatus').textContent='Prices loaded — best price per outcome is lit. Cells stay editable.';
+    renderBoard(model());
+  }catch(e){
+    $('oddsStatus').textContent='Fetching fills the board below from your proxy. Any cell can also be typed in straight off the app — decimal odds.';
+    $('oddsErr').textContent='Odds fetch failed: '+e.message;
+    $('oddsErr').classList.remove('hidden');
+  }
+}
+function bookOf(key){
+  return BOOKS.find(b=>b.key===key||(b.alt&&b.alt.includes(key)));
+}
+function setOdds(oid,book,price){
+  if(!price||price<=1)return;
+  S.odds[oid]=S.odds[oid]||{};
+  S.odds[oid][book.key]=price;
+}
+function ingestMain(ev,hN,aN){
+  (ev.bookmakers||[]).forEach(bm=>{
+    const b=bookOf(bm.key); if(!b)return;
+    (bm.markets||[]).forEach(mkt=>{
+      if(mkt.key==='h2h'){
+        mkt.outcomes.forEach(o=>{
+          if(o.name===hN)setOdds('h2h_home',b,o.price);
+          if(o.name===aN)setOdds('h2h_away',b,o.price);
+        });
+      }
+      if(mkt.key==='spreads'){
+        mkt.outcomes.forEach(o=>{
+          if(o.name===hN&&o.point===-1.5)setOdds('rl_hm',b,o.price);
+          if(o.name===hN&&o.point=== 1.5)setOdds('rl_hp',b,o.price);
+          if(o.name===aN&&o.point===-1.5)setOdds('rl_am',b,o.price);
+          if(o.name===aN&&o.point=== 1.5)setOdds('rl_ap',b,o.price);
+        });
+      }
+    });
+  });
+}
+function ingestF3(ev,hN,aN){
+  (ev.bookmakers||[]).forEach(bm=>{
+    const b=bookOf(bm.key); if(!b)return;
+    (bm.markets||[]).forEach(mkt=>{
+      if(mkt.key==='h2h_1st_3_innings'){
+        mkt.outcomes.forEach(o=>{
+          if(o.name===hN)setOdds('f3_h',b,o.price);
+          if(o.name===aN)setOdds('f3_a',b,o.price);
+        });
+      }
+    });
+  });
+}
+
+loadSlate();
+</script>
+</body>
+</html>
