@@ -190,6 +190,7 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
       <div style="max-width:180px"><button id="fetchOdds" disabled>Fetch main markets</button></div>
       <div style="max-width:160px"><button class="ghost" id="fetchProps" disabled>Fetch props</button></div>
       <div style="max-width:140px"><button class="ghost" id="clearOdds">Clear prices</button></div>
+      <div style="max-width:160px"><button class="ghost" id="logSheet" disabled>Log to sheet</button></div>
     </div>
     <p class="hint" id="oddsStatus">Main markets = one game's H2H, run line &amp; totals (cheap). Props are a separate pull (more quota, AU coverage patchy). Any cell types in by hand — decimal odds.</p>
     <div class="err hidden" id="oddsErr"></div>
@@ -263,7 +264,7 @@ const UMPS={
 };
 
 /* ===================== STATE ===================== */
-const S={game:null,season:null,inputs:{},auto:{},wx:{tempC:21,windK:0,windDir:'-',mode:'neutral',roofClosed:false},odds:{},lines:{},batters:[],eventId:null};
+const S={game:null,season:null,inputs:{},auto:{},wx:{tempC:21,windK:0,windDir:'-',mode:'neutral',roofClosed:false},odds:{},lines:{},batters:[],hrBatters:[],eventId:null};
 const $=id=>document.getElementById(id);
 const fmtP=p=>(p*100).toFixed(1)+'%';
 const halfLine=v=>{const r=Math.round(v-0.5)+0.5;return r>0.5?r:0.5;};
@@ -302,8 +303,8 @@ async function loadSlate(){
 async function selectGame(g,btn){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('sel'));
   btn.classList.add('sel');
-  S.game=g;S.odds={};S.auto={};S.lines={};S.batters=[];S.eventId=null;
-  $('fetchOdds').disabled=false;$('fetchProps').disabled=false;
+  S.game=g;S.odds={};S.auto={};S.lines={};S.batters=[];S.hrBatters=[];S.eventId=null;
+  $('fetchOdds').disabled=false;$('fetchProps').disabled=false;$('logSheet').disabled=false;
   $('statsBody').innerHTML='<p class="hint">Pulling season numbers…</p>';
   $('autoBody').innerHTML='<p class="hint">Working out rest, bullpen, park &amp; umpire…</p>';
   $('wxBody').innerHTML='<p class="hint">Pulling forecast…</p>';
@@ -573,7 +574,8 @@ function markets(m){
         {id:'k_away_u',label:`${shortName(m.kExp.away.name)} Under ${kA}`,sub:'',p:ouKA.under},
         {id:'k_home_o',label:`${shortName(m.kExp.home.name)} Over ${kH}`,sub:`exp ${m.kExp.home.lam.toFixed(1)}`,p:ouKH.over},
         {id:'k_home_u',label:`${shortName(m.kExp.home.name)} Under ${kH}`,sub:'',p:ouKH.under}]},
-    {key:'hrr',title:'Batter H+R+RBI',note:'lower confidence — blind to lineup spot',conf:'lo',batter:true,outcomes:[]}
+    {key:'hrr',title:'Batter H+R+RBI',note:'lower confidence — blind to lineup spot',conf:'lo',batter:true,outcomes:[]},
+    {key:'hr',title:'Batter home run',note:'season HR rate × park — bare bones',conf:'lo',hr:true,outcomes:[]}
   ];
 }
 
@@ -608,6 +610,7 @@ function renderBoard(m){
   let html='';
   markets(m).forEach(mk=>{
     if(mk.batter){html+=renderBatterBlock();return;}
+    if(mk.hr){html+=renderHrBlock();return;}
     html+=`<div class="mkt-title">${mk.title}<span class="conf ${mk.conf}">${confTxt(mk.conf)}</span><span class="note">${mk.note}</span>`;
     if(mk.lineKey)html+=`<span class="lineedit">line <input type="number" step="0.5" data-linekey="${mk.lineKey}" value="${mk.line}"></span>`;
     if(mk.dualLine)html+=`<span class="lineedit">${shortName(S.inputs.aSpName)} <input type="number" step="0.5" data-linekey="${mk.lineKeyA}" value="${mk.lineA}"></span><span class="lineedit">${shortName(S.inputs.hSpName)} <input type="number" step="0.5" data-linekey="${mk.lineKeyH}" value="${mk.lineH}"></span>`;
@@ -672,6 +675,46 @@ function batterOutcomes(){
   return out;
 }
 
+/* HR model: chance of hitting 1+ HR = 1 - e^(-rate*park). rate = season HR/game. */
+function hrProb(rate){const lam=Math.max(0,rate*(S.auto.park?S.auto.park.pf:1));const yes=1-Math.exp(-lam);return {yes:Math.max(0,Math.min(1,yes)),no:Math.max(0,Math.min(1,1-yes))};}
+function renderHrBlock(){
+  let html=`<div class="mkt-title">Batter home run<span class="conf lo">low conf</span><span class="note">season HR/game × park factor — the bare-bones model</span></div>`;
+  html+=`<p class="hint" style="margin:0 0 8px">Add a batter and their season HR-per-game (e.g. 30 HR over 150 games = 0.20). Model gives the chance of 1+ HR tonight, park-adjusted. Books usually price this as "to hit a home run" (Yes only).</p>`;
+  html+=`<table class="board-t"><tr><th>Batter</th><th>HR/gm</th><th>Side</th><th>Model</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
+  (S.hrBatters||[]).forEach((bt,idx)=>{
+    const hp=hrProb(bt.rate);
+    ['y','n'].forEach(side=>{
+      const oid=`hr_${idx}_${side}`,p=side==='y'?hp.yes:hp.no;
+      const row=S.odds[oid]||{},prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1),best=prices.length?Math.max(...prices):null;
+      html+='<tr>';
+      if(side==='y'){
+        html+=`<td rowspan="2" style="text-align:left"><input type="text" data-hidx="${idx}" data-hfield="name" value="${bt.name}" style="width:110px;text-align:left"></td>`+
+              `<td rowspan="2"><input type="number" step="0.01" data-hidx="${idx}" data-hfield="rate" value="${bt.rate}" style="width:58px;text-align:center"></td>`;
+      }
+      html+=`<td>${side==='y'?'To hit HR':'No HR'}</td><td class="mprob">${fmtP(p)}<small>$${(1/p).toFixed(2)}</small></td>`;
+      BOOKS.forEach(b=>{
+        const v=row[b.key]||'',ev=v>1?(p*v-1):null,isBest=best!==null&&v===best;
+        html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-oid="${oid}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
+          (ev!==null?`<span class="ev ${ev>=0?'pos':'neg'}">${ev>=0?'+':''}${(ev*100).toFixed(1)}%</span>`:'<span class="ev">&nbsp;</span>')+`</td>`;
+      });
+      html+='</tr>';
+    });
+  });
+  html+='</table>';
+  html+=`<button class="ghost" id="addHr" style="margin-top:8px;font-size:12px;padding:6px 12px">+ Add HR batter</button>`;
+  html+=kellyBlock(hrOutcomes());
+  return html;
+}
+function hrOutcomes(){
+  const out=[];
+  (S.hrBatters||[]).forEach((bt,idx)=>{
+    const hp=hrProb(bt.rate);
+    out.push({id:`hr_${idx}_y`,label:`${bt.name} to hit a HR`,p:hp.yes});
+    out.push({id:`hr_${idx}_n`,label:`${bt.name} no HR`,p:hp.no});
+  });
+  return out;
+}
+
 function kellyBlock(outcomes){
   const bank=Number($('bankroll').value)||0,kf=Number($('kellyFrac').value),minE=Number($('minEdge').value);
   const recs=[];
@@ -691,7 +734,10 @@ function wireBoard(){
   $('boardBody').querySelectorAll('input[data-linekey]').forEach(el=>el.addEventListener('change',()=>{S.lines[el.dataset.linekey]=Number(el.value);render();}));
   $('boardBody').querySelectorAll('input[data-bidx]').forEach(el=>el.addEventListener('change',()=>{
     const idx=+el.dataset.bidx,f=el.dataset.bfield;S.batters[idx][f]=f==='name'?el.value:Number(el.value)||0;render();}));
+  $('boardBody').querySelectorAll('input[data-hidx]').forEach(el=>el.addEventListener('change',()=>{
+    const idx=+el.dataset.hidx,f=el.dataset.hfield;S.hrBatters[idx][f]=f==='name'?el.value:Number(el.value)||0;render();}));
   const ab=$('addBatter');if(ab)ab.onclick=()=>{S.batters.push({name:'New batter',rate:1.4,line:1.5});render();};
+  const ah=$('addHr');if(ah)ah.onclick=()=>{S.hrBatters.push({name:'New batter',rate:0.15});render();};
 }
 
 function renderEdges(m){
@@ -706,6 +752,7 @@ function renderEdges(m){
   });
   markets(m).forEach(mk=>{if(!mk.batter)collect(mk.outcomes,mk.title);});
   collect(batterOutcomes(),'Batter H+R+RBI');
+  collect(hrOutcomes(),'Batter home run');
   all.sort((a,b)=>b.edge-a.edge);
   if(!all.length){$('edgesBody').innerHTML='<p class="edge-empty">No +EV prices over your threshold yet. Add prices to the board below, or lower the edge threshold in Setup.</p>';return;}
   $('edgesBody').innerHTML=all.slice(0,12).map(e=>
@@ -747,7 +794,7 @@ async function fetchProps(){
   if(!S.eventId){oddsError('Fetch main markets first (need the event id).');return;}
   $('oddsStatus').textContent='Fetching props (costs extra quota)…';
   try{
-    const e=await fetch(`${proxy}?path=event&eventId=${S.eventId}&markets=pitcher_strikeouts,batter_hits_runs_rbis`).then(x=>x.json());
+    const e=await fetch(`${proxy}?path=event&eventId=${S.eventId}&markets=pitcher_strikeouts,batter_hits_runs_rbis,batter_home_runs`).then(x=>x.json());
     if(e.error)throw new Error(e.error);
     const got=ingestProps(e);
     $('oddsStatus').textContent=got?`Props loaded (${got} prices). AU books may not carry MLB props — blanks are manual.`:'Feed returned no AU prop prices for this game — enter them manually.';
@@ -792,8 +839,45 @@ function ingestProps(ev){
         }
         (S.batters||[]).forEach((bt,idx)=>{if(matchName(nm,bt.name)){setOdds(o.name==='Over'?`hrr_${idx}_o`:`hrr_${idx}_u`,b,o.price);count++;}});
       });
+      if(mkt.key==='batter_home_runs')mkt.outcomes.forEach(o=>{
+        const nm=o.description||'';
+        // "to hit a HR" is usually the Over 0.5 / Yes side
+        let idx=(S.hrBatters||[]).findIndex(bt=>matchName(nm,bt.name));
+        if(idx<0){S.hrBatters.push({name:nm,rate:0.15});idx=S.hrBatters.length-1;}
+        const side=(o.name==='Over'||o.name==='Yes')?'y':'n';
+        setOdds(`hr_${idx}_${side}`,b,o.price);count++;
+      });
     });});
   return count;
+}
+
+/* ===================== RESULTS LOGGING ===================== */
+$('logSheet').onclick=logToSheet;
+async function logToSheet(){
+  const proxy=$('proxyUrl').value.trim();$('oddsErr').classList.add('hidden');
+  if(!proxy){oddsError('No proxy URL set — logging writes to the sheet behind your proxy.');return;}
+  const m=model();if(!m){oddsError('Load a game first.');return;}
+  const g=S.game,date=new Date(g.gameDate).toISOString().slice(0,10);
+  const matchup=`${S.inputs.awayName} @ ${S.inputs.homeName}`;
+  // gather every market outcome that has at least one price, log model prob + best price + edge
+  const rows=[];
+  const push=(mkt,o)=>{
+    const row=S.odds[o.id]||{},prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1);
+    if(!prices.length)return;
+    const best=Math.max(...prices),book=BOOKS.find(b=>row[b.key]===best).name,edge=o.p*best-1;
+    rows.push([date,matchup,mkt,o.label,(o.p*100).toFixed(1)+'%',(1/o.p).toFixed(2),best.toFixed(2),book,(edge*100).toFixed(1)+'%','']);
+  };
+  markets(m).forEach(mk=>{if(mk.batter||mk.hr)return;mk.outcomes.forEach(o=>push(mk.title,o));});
+  batterOutcomes().forEach(o=>push('Batter H+R+RBI',o));
+  hrOutcomes().forEach(o=>push('Batter home run',o));
+  if(!rows.length){oddsError('Nothing to log yet — add some prices first.');return;}
+  $('oddsStatus').textContent=`Logging ${rows.length} rows…`;
+  try{
+    const payload=encodeURIComponent(JSON.stringify(rows));
+    const r=await fetch(`${proxy}?path=log&data=${payload}`).then(x=>x.json());
+    if(r.error)throw new Error(r.error);
+    $('oddsStatus').textContent=`Logged ${rows.length} rows to your sheet (tab "MLB Log"). Fill the Result column after the game to settle.`;
+  }catch(e){oddsError('Log failed: '+e.message);}
 }
 
 loadSlate();
