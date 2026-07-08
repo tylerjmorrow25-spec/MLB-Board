@@ -103,6 +103,10 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
 .edge-desc{flex:1;color:var(--chalk);min-width:150px}
 .edge-price{font-family:'IBM Plex Mono',monospace;color:var(--amber)}
 .edge-stake{font-family:'IBM Plex Mono',monospace;color:var(--chalk-dim);min-width:60px;text-align:right}
+.edge-back{display:inline-flex;align-items:center;gap:4px}
+.edge-back .dollar{color:var(--chalk-faint);font-family:'IBM Plex Mono',monospace;font-size:12px}
+.edge-back .backstake{width:62px;padding:4px 6px;text-align:right;font-size:12px}
+.edge-back .backbtn{padding:4px 12px;font-size:12px}
 .edge-empty{color:var(--chalk-faint);font-size:12.5px;padding:6px 2px}
 @media(prefers-reduced-motion:no-preference){.cell.best input{transition:box-shadow .3s}}
 </style>
@@ -191,6 +195,7 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
       <div style="max-width:160px"><button class="ghost" id="fetchProps" disabled>Fetch props</button></div>
       <div style="max-width:140px"><button class="ghost" id="clearOdds">Clear prices</button></div>
       <div style="max-width:160px"><button class="ghost" id="logSheet" disabled>Log to sheet</button></div>
+      <div style="max-width:160px"><button class="ghost" id="settleBtn">Settle results</button></div>
     </div>
     <p class="hint" id="oddsStatus">Main markets = one game's H2H, run line &amp; totals (cheap). Props are a separate pull (more quota, AU coverage patchy). Any cell types in by hand — decimal odds.</p>
     <div class="err hidden" id="oddsErr"></div>
@@ -579,6 +584,28 @@ function markets(m){
   ];
 }
 
+/* map an outcome id -> structured settle info so the sheet can be auto-settled */
+function settleMeta(oid,m){
+  const tL=S.lines.total??halfLine(m.totLam), t5=S.lines.f5??halfLine(m.lam5), t3=S.lines.f3??halfLine(m.lam3);
+  const kH=S.lines.kHome??halfLine(m.kExp.home.lam), kA=S.lines.kAway??halfLine(m.kExp.away.lam);
+  const M={
+    h2h_home:{type:'h2h',side:'home',line:'',player:''}, h2h_away:{type:'h2h',side:'away',line:'',player:''},
+    rl_hm:{type:'rl',side:'hm',line:-1.5,player:''}, rl_hp:{type:'rl',side:'hp',line:1.5,player:''},
+    rl_am:{type:'rl',side:'am',line:-1.5,player:''}, rl_ap:{type:'rl',side:'ap',line:1.5,player:''},
+    tot_o:{type:'total',side:'over',line:tL,player:''}, tot_u:{type:'total',side:'under',line:tL,player:''},
+    f5_o:{type:'f5',side:'over',line:t5,player:''}, f5_u:{type:'f5',side:'under',line:t5,player:''},
+    f3t_o:{type:'f3',side:'over',line:t3,player:''}, f3t_u:{type:'f3',side:'under',line:t3,player:''},
+    k_home_o:{type:'kso',side:'over',line:kH,player:S.inputs.hSpName}, k_home_u:{type:'kso',side:'under',line:kH,player:S.inputs.hSpName},
+    k_away_o:{type:'kso',side:'over',line:kA,player:S.inputs.aSpName}, k_away_u:{type:'kso',side:'under',line:kA,player:S.inputs.aSpName}
+  };
+  if(M[oid])return M[oid];
+  let a=oid.match(/^hrr_(\d+)_(o|u)$/);
+  if(a){const bt=S.batters[+a[1]];return{type:'hrr',side:a[2]==='o'?'over':'under',line:bt?bt.line:'',player:bt?bt.name:''};}
+  let b=oid.match(/^hr_(\d+)_(y|n)$/);
+  if(b){const bt=S.hrBatters[+b[1]];return{type:'hr',side:b[2]==='y'?'yes':'no',line:0.5,player:bt?bt.name:''};}
+  return{type:'?',side:'',line:'',player:''};
+}
+
 /* ===================== RENDER ===================== */
 function render(){
   const m=model();if(!m)return;
@@ -748,16 +775,24 @@ function renderEdges(m){
     if(!prices.length)return;
     const best=Math.max(...prices),edge=o.p*best-1;
     if(edge>minE){const kFull=edge/(best-1),stake=bank*kFull*kf,book=BOOKS.find(b=>row[b.key]===best).name;
-      all.push({edge,mkt,desc:o.label,price:best,book,stake});}
+      all.push({oid:o.id,edge,mkt,desc:o.label,price:best,book,stake});}
   });
   markets(m).forEach(mk=>{if(!mk.batter)collect(mk.outcomes,mk.title);});
   collect(batterOutcomes(),'Batter H+R+RBI');
   collect(hrOutcomes(),'Batter home run');
   all.sort((a,b)=>b.edge-a.edge);
+  S.currentEdges=all;
   if(!all.length){$('edgesBody').innerHTML='<p class="edge-empty">No +EV prices over your threshold yet. Add prices to the board below, or lower the edge threshold in Setup.</p>';return;}
-  $('edgesBody').innerHTML=all.slice(0,12).map(e=>
-    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-mkt">${e.mkt}</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span><span class="edge-stake">$${e.stake.toFixed(0)}</span></div>`
-  ).join('')+`<p class="hint" style="margin-top:10px">Sorted biggest edge first — a shortlist to look closer at, not tips. Anything here still needs your eyes on the lineup and matchup before you back it.</p>`;
+  $('edgesBody').innerHTML=all.slice(0,12).map((e,ix)=>
+    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-mkt">${e.mkt}</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
+    `<span class="edge-back"><span class="dollar">$</span><input type="number" class="backstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost backbtn" data-eix="${ix}">Back</button></span></div>`
+  ).join('')+`<p class="hint" style="margin-top:10px">Suggested stake is quarter-Kelly — <b>change the $ to whatever you actually bet</b>, then hit Back to log it. Settles automatically after the game. This is a shortlist, not tips; check the lineup first.</p>`;
+  $('edgesBody').querySelectorAll('.backbtn').forEach(btn=>btn.onclick=()=>{
+    const e=S.currentEdges[+btn.dataset.eix];
+    const stake=Number($('edgesBody').querySelector(`.backstake[data-eix="${btn.dataset.eix}"]`).value)||0;
+    if(stake<=0){oddsError('Enter a stake above $0 to log the bet.');return;}
+    logBet(e.oid,e.desc,e.mkt,e.price,e.book,stake);
+  });
 }
 
 $('clearOdds').onclick=()=>{S.odds={};if(S.game)render();};
@@ -858,14 +893,14 @@ async function logToSheet(){
   if(!proxy){oddsError('No proxy URL set — logging writes to the sheet behind your proxy.');return;}
   const m=model();if(!m){oddsError('Load a game first.');return;}
   const g=S.game,date=new Date(g.gameDate).toISOString().slice(0,10);
-  const matchup=`${S.inputs.awayName} @ ${S.inputs.homeName}`;
-  // gather every market outcome that has at least one price, log model prob + best price + edge
+  const matchup=`${S.inputs.awayName} @ ${S.inputs.homeName}`,pk=g.gamePk;
   const rows=[];
   const push=(mkt,o)=>{
     const row=S.odds[o.id]||{},prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1);
     if(!prices.length)return;
-    const best=Math.max(...prices),book=BOOKS.find(b=>row[b.key]===best).name,edge=o.p*best-1;
-    rows.push([date,matchup,mkt,o.label,(o.p*100).toFixed(1)+'%',(1/o.p).toFixed(2),best.toFixed(2),book,(edge*100).toFixed(1)+'%','']);
+    const best=Math.max(...prices),book=BOOKS.find(b=>row[b.key]===best).name,edge=o.p*best-1,st=settleMeta(o.id,m);
+    // Date, Matchup, GamePk, Market, Selection, SettleType, SettleSide, Line, Player, Model%, Fair, BestPrice, Book, Edge%, Result
+    rows.push([date,matchup,pk,mkt,o.label,st.type,st.side,st.line,st.player,(o.p*100).toFixed(1)+'%',(1/o.p).toFixed(2),best.toFixed(2),book,(edge*100).toFixed(1)+'%','']);
   };
   markets(m).forEach(mk=>{if(mk.batter||mk.hr)return;mk.outcomes.forEach(o=>push(mk.title,o));});
   batterOutcomes().forEach(o=>push('Batter H+R+RBI',o));
@@ -873,11 +908,39 @@ async function logToSheet(){
   if(!rows.length){oddsError('Nothing to log yet — add some prices first.');return;}
   $('oddsStatus').textContent=`Logging ${rows.length} rows…`;
   try{
-    const payload=encodeURIComponent(JSON.stringify(rows));
-    const r=await fetch(`${proxy}?path=log&data=${payload}`).then(x=>x.json());
+    const r=await fetch(`${proxy}?path=log&data=${encodeURIComponent(JSON.stringify(rows))}`).then(x=>x.json());
     if(r.error)throw new Error(r.error);
-    $('oddsStatus').textContent=`Logged ${rows.length} rows to your sheet (tab "MLB Log"). Fill the Result column after the game to settle.`;
+    $('oddsStatus').textContent=`Logged ${rows.length} predictions to "MLB Log". Hit "Settle results" after games finish to auto-fill outcomes.`;
   }catch(e){oddsError('Log failed: '+e.message);}
+}
+
+/* ===================== BET TRACKER ===================== */
+async function logBet(oid,label,mkt,price,book,stake){
+  const proxy=$('proxyUrl').value.trim();$('oddsErr').classList.add('hidden');
+  if(!proxy){oddsError('No proxy URL set.');return;}
+  const m=model();if(!m)return;
+  const g=S.game,date=new Date(g.gameDate).toISOString().slice(0,10);
+  const matchup=`${S.inputs.awayName} @ ${S.inputs.homeName}`,pk=g.gamePk,st=settleMeta(oid,m);
+  // Date, Matchup, GamePk, Market, Selection, SettleType, SettleSide, Line, Player, Odds, Book, Stake, Result, Return, PnL
+  const rowArr=[date,matchup,pk,mkt,label,st.type,st.side,st.line,st.player,Number(price).toFixed(2),book,Number(stake).toFixed(2),'','',''];
+  try{
+    const r=await fetch(`${proxy}?path=bet&data=${encodeURIComponent(JSON.stringify(rowArr))}`).then(x=>x.json());
+    if(r.error)throw new Error(r.error);
+    $('oddsStatus').textContent=`Bet logged: ${label} $${Number(stake).toFixed(0)} @ $${Number(price).toFixed(2)}. Settles automatically after the game.`;
+  }catch(e){oddsError('Bet log failed: '+e.message);}
+}
+
+/* ===================== SETTLE ===================== */
+$('settleBtn').onclick=settleResults;
+async function settleResults(){
+  const proxy=$('proxyUrl').value.trim();$('oddsErr').classList.add('hidden');
+  if(!proxy){oddsError('No proxy URL set.');return;}
+  $('oddsStatus').textContent='Settling finished games from box scores…';
+  try{
+    const r=await fetch(`${proxy}?path=settle`).then(x=>x.json());
+    if(r.error)throw new Error(r.error);
+    $('oddsStatus').textContent=`Settled ${r.log||0} predictions and ${r.bets||0} bets. Unfinished games stay blank until they end.`;
+  }catch(e){oddsError('Settle failed: '+e.message);}
 }
 
 loadSlate();
