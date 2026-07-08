@@ -908,7 +908,7 @@ async function logToSheet(){
   if(!rows.length){oddsError('Nothing to log yet — add some prices first.');return;}
   $('oddsStatus').textContent=`Logging ${rows.length} rows…`;
   try{
-    const r=await fetch(`${proxy}?path=log&data=${encodeURIComponent(JSON.stringify(rows))}`).then(x=>x.json());
+    const r=await fetch(proxy,{method:'POST',body:JSON.stringify({path:'log',rows:rows})}).then(x=>x.json());
     if(r.error)throw new Error(r.error);
     $('oddsStatus').textContent=`Logged ${rows.length} predictions to "MLB Log". Hit "Settle results" after games finish to auto-fill outcomes.`;
   }catch(e){oddsError('Log failed: '+e.message);}
@@ -924,7 +924,7 @@ async function logBet(oid,label,mkt,price,book,stake){
   // Date, Matchup, GamePk, Market, Selection, SettleType, SettleSide, Line, Player, Odds, Book, Stake, Result, Return, PnL
   const rowArr=[date,matchup,pk,mkt,label,st.type,st.side,st.line,st.player,Number(price).toFixed(2),book,Number(stake).toFixed(2),'','',''];
   try{
-    const r=await fetch(`${proxy}?path=bet&data=${encodeURIComponent(JSON.stringify(rowArr))}`).then(x=>x.json());
+    const r=await fetch(proxy,{method:'POST',body:JSON.stringify({path:'bet',rows:[rowArr]})}).then(x=>x.json());
     if(r.error)throw new Error(r.error);
     $('oddsStatus').textContent=`Bet logged: ${label} $${Number(stake).toFixed(0)} @ $${Number(price).toFixed(2)}. Settles automatically after the game.`;
   }catch(e){oddsError('Bet log failed: '+e.message);}
