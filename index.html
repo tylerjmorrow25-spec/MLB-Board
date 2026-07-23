@@ -66,14 +66,14 @@ input[type=range]{width:100%;accent-color:var(--amber);background:transparent}
 .pline .bar .a{background:var(--felt2);height:100%}
 .pline .nums{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);margin-top:3px}
 .board{overflow-x:auto}
-table.board-t{width:100%;border-collapse:collapse;min-width:830px}
+table.board-t{width:100%;border-collapse:collapse;min-width:1280px}
 table.board-t th{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.07em;font-size:12.5px;color:var(--amber);font-weight:600;padding:6px 8px;border-bottom:2px solid var(--amber);text-align:center;white-space:nowrap}
 table.board-t th:first-child{text-align:left}
 table.board-t td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
 table.board-t td:first-child{text-align:left;font-size:12.5px}
 .outc{color:var(--chalk)}
 .outc small{display:block;color:var(--chalk-faint);font-family:'IBM Plex Mono',monospace;font-size:10.5px}
-.cell input{width:64px;text-align:center;padding:5px 4px;font-size:13px;background:#0B2418;border-radius:4px}
+.cell input{width:56px;text-align:center;padding:5px 4px;font-size:13px;background:#0B2418;border-radius:4px}
 .cell .ev{display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;margin-top:3px;color:var(--chalk-faint)}
 .cell .ev.pos{color:var(--pos)}
 .cell .ev.neg{color:var(--neg)}
@@ -189,7 +189,7 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
     </details>
   </div>
   <div class="card">
-    <h2>Prices <span class="tag">Sportsbet · TAB · PointsBet · BetRight · bet365</span></h2>
+    <h2>Prices <span class="tag">9 AU bookies · fair price from Pinnacle + Betfair</span></h2>
     <div class="row">
       <div style="max-width:180px"><button id="fetchOdds" disabled>Fetch main markets</button></div>
       <div style="max-width:160px"><button class="ghost" id="fetchProps" disabled>Fetch props</button></div>
@@ -221,8 +221,16 @@ const BOOKS=[
   {key:'tab',name:'TAB'},
   {key:'pointsbetau',name:'PointsBet'},
   {key:'betright',name:'BetRight'},
-  {key:'bet365',name:'bet365',alt:['bet365_au']}
+  {key:'bet365',name:'bet365',alt:['bet365_au']},
+  {key:'dabble_au',name:'Dabble'},
+  {key:'ladbrokes_au',name:'Ladbrokes'},
+  {key:'betr_au',name:'Betr'},
+  {key:'playup',name:'PlayUp'}
 ];
+/* Sharp anchors — not bettable columns; used to derive the fair price.
+   Pinnacle: sharpest traditional book. Betfair: exchange, punter-set prices,
+   minimal margin. Where both exist we average their devigged probabilities. */
+const SHARP_KEYS=['pinnacle','betfair_ex_au','betfair'];
 const LEAGUE_ERA=4.20, UNEARNED=1.08, STARTER_W=0.55, HFA_LOGODDS=0.16, HFA_F3=0.08, SLIDER_LO=0.041;
 const LEAGUE_K9=8.6, LEAGUE_TEAM_K_PCT=0.225;
 
@@ -269,7 +277,7 @@ const UMPS={
 };
 
 /* ===================== STATE ===================== */
-const S={game:null,season:null,inputs:{},auto:{},wx:{tempC:21,windK:0,windDir:'-',mode:'neutral',roofClosed:false},odds:{},sharp:{},sharpP:{},lines:{},batters:[],hrBatters:[],eventId:null};
+const S={game:null,season:null,inputs:{},auto:{},wx:{tempC:21,windK:0,windDir:'-',mode:'neutral',roofClosed:false},odds:{},sharp:{},sharpP:{},sharpSrc:{},lines:{},batters:[],hrBatters:[],eventId:null};
 const $=id=>document.getElementById(id);
 const fmtP=p=>(p*100).toFixed(1)+'%';
 const halfLine=v=>{const r=Math.round(v-0.5)+0.5;return r>0.5?r:0.5;};
@@ -308,7 +316,7 @@ async function loadSlate(){
 async function selectGame(g,btn){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('sel'));
   btn.classList.add('sel');
-  S.game=g;S.odds={};S.sharp={};S.sharpP={};S.auto={};S.lines={};S.batters=[];S.hrBatters=[];S.eventId=null;
+  S.game=g;S.odds={};S.sharp={};S.sharpP={};S.sharpSrc={};S.auto={};S.lines={};S.batters=[];S.hrBatters=[];S.eventId=null;
   $('fetchOdds').disabled=false;$('fetchProps').disabled=false;$('logSheet').disabled=false;
   $('statsBody').innerHTML='<p class="hint">Pulling season numbers…</p>';
   $('autoBody').innerHTML='<p class="hint">Working out rest, bullpen, park &amp; umpire…</p>';
@@ -657,7 +665,7 @@ function outcomeRow(o){
   const bs=basisFor(o),sp=S.sharpP[o.id];
   let h=`<tr><td class="outc">${o.label}${o.sub?`<small>${o.sub}</small>`:''}</td>`;
   h+=`<td class="mprob">${fmtP(o.p)}<small>$${(1/o.p).toFixed(2)}</small></td>`;
-  h+=sp!=null?`<td class="mprob" style="color:var(--amber)">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
+  h+=sp!=null?`<td class="mprob" style="color:var(--amber)" title="${S.sharpSrc[o.id]||''}">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
   BOOKS.forEach(b=>{
     const v=row[b.key]||'',ev=v>1?(bs.p*v-1):null,isBest=best!==null&&v===best;
     h+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-oid="${o.id}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
@@ -683,7 +691,7 @@ function renderBatterBlock(){
               `<td rowspan="2"><input type="number" step="0.5" data-bidx="${idx}" data-bfield="line" value="${bt.line}" style="width:54px;text-align:center"></td>`;
       }
       html+=`<td>${side==='o'?'Over':'Under'}</td><td class="mprob">${fmtP(p)}<small>$${(1/p).toFixed(2)}</small></td>`;
-      html+=sp!=null?`<td class="mprob" style="color:var(--amber)">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
+      html+=sp!=null?`<td class="mprob" style="color:var(--amber)" title="${S.sharpSrc[oid]||''}">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
       BOOKS.forEach(b=>{
         const v=row[b.key]||'',ev=v>1?(bs.p*v-1):null,isBest=best!==null&&v===best;
         html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-oid="${oid}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
@@ -725,7 +733,7 @@ function renderHrBlock(){
               `<td rowspan="2"><input type="number" step="0.01" data-hidx="${idx}" data-hfield="rate" value="${bt.rate}" style="width:58px;text-align:center"></td>`;
       }
       html+=`<td>${side==='y'?'To hit HR':'No HR'}</td><td class="mprob">${fmtP(p)}<small>$${(1/p).toFixed(2)}</small></td>`;
-      html+=sp!=null?`<td class="mprob" style="color:var(--amber)">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
+      html+=sp!=null?`<td class="mprob" style="color:var(--amber)" title="${S.sharpSrc[oid]||''}">${fmtP(sp)}<small>$${(1/sp).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
       BOOKS.forEach(b=>{
         const v=row[b.key]||'',ev=v>1?(bs.p*v-1):null,isBest=best!==null&&v===best;
         html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-oid="${oid}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
@@ -826,12 +834,19 @@ function sharpPairs(){
   return pairs;
 }
 function computeSharp(){
-  S.sharpP={};
+  S.sharpP={};S.sharpSrc={};
   sharpPairs().forEach(([a,b])=>{
-    const oa=S.sharp[a],ob=S.sharp[b];
-    if(!(oa>1)||!(ob>1))return;
-    const ia=1/oa,ib=1/ob,tot=ia+ib;
-    S.sharpP[a]=ia/tot;S.sharpP[b]=ib/tot;
+    const probs=[],srcs=[];
+    SHARP_KEYS.forEach(k=>{
+      const oa=(S.sharp[k]||{})[a],ob=(S.sharp[k]||{})[b];
+      if(!(oa>1)||!(ob>1))return;
+      const ia=1/oa,ib=1/ob,tot=ia+ib;
+      probs.push([ia/tot,ib/tot]);srcs.push(k==='pinnacle'?'Pinnacle':'Betfair');
+    });
+    if(!probs.length)return;
+    const pa=probs.reduce((t,p)=>t+p[0],0)/probs.length;
+    S.sharpP[a]=pa;S.sharpP[b]=1-pa;
+    S.sharpSrc[a]=S.sharpSrc[b]=srcs.join('+');
   });
 }
 
@@ -868,32 +883,32 @@ async function fetchProps(){
 function ingestMain(ev){
   const hN=S.inputs.homeName,aN=S.inputs.awayName;
   (ev.bookmakers||[]).forEach(bm=>{
-    const isSharp=bm.key==='pinnacle';const b=bookOf(bm.key);
-    if(!b&&!isSharp)return;
-    const put=(oid,price)=>{if(!(price>1))return;if(isSharp)S.sharp[oid]=price;else setOdds(oid,b,price);};
+    const sk=SHARP_KEYS.indexOf(bm.key)>=0?bm.key:null;const b=bookOf(bm.key);
+    if(!b&&!sk)return;
+    const put=(oid,price)=>{if(!(price>1))return;if(sk){S.sharp[sk]=S.sharp[sk]||{};S.sharp[sk][oid]=price;}else setOdds(oid,b,price);};
     (bm.markets||[]).forEach(mkt=>{
       if(mkt.key==='h2h')mkt.outcomes.forEach(o=>{if(o.name===hN)put('h2h_home',o.price);if(o.name===aN)put('h2h_away',o.price);});
       if(mkt.key==='spreads')mkt.outcomes.forEach(o=>{
         if(o.name===hN&&o.point===-1.5)put('rl_hm',o.price);if(o.name===hN&&o.point===1.5)put('rl_hp',o.price);
         if(o.name===aN&&o.point===-1.5)put('rl_am',o.price);if(o.name===aN&&o.point===1.5)put('rl_ap',o.price);});
       if(mkt.key==='totals'){const l=mkt.outcomes[0]?.point;
-        if(l!=null){if(!isSharp)S.lines.total=l;else if(S.lines.total==null)S.lines.total=l;
-          if(isSharp&&S.lines.total!==l)return;} // only anchor sharp on the same line
+        if(l!=null){if(!sk)S.lines.total=l;else if(S.lines.total==null)S.lines.total=l;
+          if(sk&&S.lines.total!==l)return;} // only anchor sharp on the same line
         mkt.outcomes.forEach(o=>{if(o.name==='Over')put('tot_o',o.price);if(o.name==='Under')put('tot_u',o.price);});}
     });});
   computeSharp();
 }
 function ingestInnings(ev){
   (ev.bookmakers||[]).forEach(bm=>{
-    const isSharp=bm.key==='pinnacle';const b=bookOf(bm.key);
-    if(!b&&!isSharp)return;
-    const put=(oid,price)=>{if(!(price>1))return;if(isSharp)S.sharp[oid]=price;else setOdds(oid,b,price);};
+    const sk=SHARP_KEYS.indexOf(bm.key)>=0?bm.key:null;const b=bookOf(bm.key);
+    if(!b&&!sk)return;
+    const put=(oid,price)=>{if(!(price>1))return;if(sk){S.sharp[sk]=S.sharp[sk]||{};S.sharp[sk][oid]=price;}else setOdds(oid,b,price);};
     (bm.markets||[]).forEach(mkt=>{
-      if(mkt.key==='totals_1st_5_innings'){const l=mkt.outcomes[0]?.point;if(l!=null&&!isSharp)S.lines.f5=l;else if(l!=null&&S.lines.f5==null)S.lines.f5=l;
-        if(isSharp&&mkt.outcomes[0]?.point!==S.lines.f5)return;
+      if(mkt.key==='totals_1st_5_innings'){const l=mkt.outcomes[0]?.point;if(l!=null&&!sk)S.lines.f5=l;else if(l!=null&&S.lines.f5==null)S.lines.f5=l;
+        if(sk&&mkt.outcomes[0]?.point!==S.lines.f5)return;
         mkt.outcomes.forEach(o=>{if(o.name==='Over')put('f5_o',o.price);if(o.name==='Under')put('f5_u',o.price);});}
-      if(mkt.key==='totals_1st_3_innings'){const l=mkt.outcomes[0]?.point;if(l!=null&&!isSharp)S.lines.f3=l;else if(l!=null&&S.lines.f3==null)S.lines.f3=l;
-        if(isSharp&&mkt.outcomes[0]?.point!==S.lines.f3)return;
+      if(mkt.key==='totals_1st_3_innings'){const l=mkt.outcomes[0]?.point;if(l!=null&&!sk)S.lines.f3=l;else if(l!=null&&S.lines.f3==null)S.lines.f3=l;
+        if(sk&&mkt.outcomes[0]?.point!==S.lines.f3)return;
         mkt.outcomes.forEach(o=>{if(o.name==='Over')put('f3t_o',o.price);if(o.name==='Under')put('f3t_u',o.price);});}
     });});
   computeSharp();
@@ -901,18 +916,18 @@ function ingestInnings(ev){
 function ingestProps(ev){
   let count=0;const hSp=S.inputs.hSpName,aSp=S.inputs.aSpName;
   (ev.bookmakers||[]).forEach(bm=>{
-    const isSharp=bm.key==='pinnacle';const b=bookOf(bm.key);
-    if(!b&&!isSharp)return;
-    const put=(oid,price)=>{if(!(price>1))return;if(isSharp)S.sharp[oid]=price;else{setOdds(oid,b,price);count++;}};
+    const sk=SHARP_KEYS.indexOf(bm.key)>=0?bm.key:null;const b=bookOf(bm.key);
+    if(!b&&!sk)return;
+    const put=(oid,price)=>{if(!(price>1))return;if(sk){S.sharp[sk]=S.sharp[sk]||{};S.sharp[sk][oid]=price;}else{setOdds(oid,b,price);count++;}};
     (bm.markets||[]).forEach(mkt=>{
       if(mkt.key==='pitcher_strikeouts')mkt.outcomes.forEach(o=>{
         const nm=o.description||'';
-        if(matchName(nm,hSp)){if(o.point!=null&&!isSharp)S.lines.kHome=o.point;put(o.name==='Over'?'k_home_o':'k_home_u',o.price);}
-        if(matchName(nm,aSp)){if(o.point!=null&&!isSharp)S.lines.kAway=o.point;put(o.name==='Over'?'k_away_o':'k_away_u',o.price);}
+        if(matchName(nm,hSp)){if(o.point!=null&&!sk)S.lines.kHome=o.point;put(o.name==='Over'?'k_home_o':'k_home_u',o.price);}
+        if(matchName(nm,aSp)){if(o.point!=null&&!sk)S.lines.kAway=o.point;put(o.name==='Over'?'k_away_o':'k_away_u',o.price);}
       });
       if(mkt.key==='batter_hits_runs_rbis')mkt.outcomes.forEach(o=>{
         const nm=o.description||'';
-        if(o.name==='Over'&&!isSharp){
+        if(o.name==='Over'&&!sk){
           let idx=(S.batters||[]).findIndex(bt=>matchName(nm,bt.name));
           if(idx<0){S.batters.push({name:nm,rate:1.4,line:o.point||1.5});idx=S.batters.length-1;}
           else if(o.point!=null)S.batters[idx].line=o.point;
@@ -921,7 +936,7 @@ function ingestProps(ev){
       });
       if(mkt.key==='batter_home_runs')mkt.outcomes.forEach(o=>{
         const nm=o.description||'';
-        if((o.name==='Over'||o.name==='Yes')&&!isSharp){
+        if((o.name==='Over'||o.name==='Yes')&&!sk){
           let idx=(S.hrBatters||[]).findIndex(bt=>matchName(nm,bt.name));
           if(idx<0){S.hrBatters.push({name:nm,rate:0.15});}
         }
