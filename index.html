@@ -66,6 +66,8 @@ input[type=range]{width:100%;accent-color:var(--amber);background:transparent}
 .pline .bar .a{background:var(--felt2);height:100%}
 .pline .nums{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--chalk-dim);margin-top:3px}
 .board{overflow-x:auto}
+#boardBody{overflow-x:auto}
+.mkt-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px}
 table.board-t{width:100%;border-collapse:collapse;min-width:1280px}
 table.board-t th{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.07em;font-size:12.5px;color:var(--amber);font-weight:600;padding:6px 8px;border-bottom:2px solid var(--amber);text-align:center;white-space:nowrap}
 table.board-t th:first-child{text-align:left}
@@ -650,9 +652,9 @@ function renderBoard(m){
     if(mk.lineKey)html+=`<span class="lineedit">line <input type="number" step="0.5" data-linekey="${mk.lineKey}" value="${mk.line}"></span>`;
     if(mk.dualLine)html+=`<span class="lineedit">${shortName(S.inputs.aSpName)} <input type="number" step="0.5" data-linekey="${mk.lineKeyA}" value="${mk.lineA}"></span><span class="lineedit">${shortName(S.inputs.hSpName)} <input type="number" step="0.5" data-linekey="${mk.lineKeyH}" value="${mk.lineH}"></span>`;
     html+=`</div>`;
-    html+=`<table class="board-t"><tr><th>Outcome</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
+    html+=`<div class="mkt-scroll"><table class="board-t"><tr><th>Outcome</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
     mk.outcomes.forEach(o=>{html+=outcomeRow(o);});
-    html+='</table>';
+    html+='</table></div>';
     html+=kellyBlock(mk.outcomes);
   });
   $('boardBody').innerHTML=html;
@@ -677,7 +679,7 @@ function outcomeRow(o){
 function renderBatterBlock(){
   let html=`<div class="mkt-title">Batter H+R+RBI<span class="conf lo">low conf</span><span class="note">blind to batting order until cards drop — a rough guide</span></div>`;
   html+=`<p class="hint" style="margin:0 0 8px">Add a batter, their season H+R+RBI per game, and the line. Poisson around the per-game rate. Prices type in from the app (or a props fetch if your book carries them).</p>`;
-  html+=`<table class="board-t"><tr><th>Batter</th><th>Rate/gm</th><th>Line</th><th>Side</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
+  html+=`<div class="mkt-scroll"><table class="board-t"><tr><th>Batter</th><th>Rate/gm</th><th>Line</th><th>Side</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
   (S.batters||[]).forEach((bt,idx)=>{
     const ou=ouProb(bt.rate,bt.line);
     ['o','u'].forEach(side=>{
@@ -700,7 +702,7 @@ function renderBatterBlock(){
       html+='</tr>';
     });
   });
-  html+='</table>';
+  html+='</table></div>';
   html+=`<button class="ghost" id="addBatter" style="margin-top:8px;font-size:12px;padding:6px 12px">+ Add batter</button>`;
   html+=kellyBlock(batterOutcomes());
   return html;
@@ -720,7 +722,7 @@ function hrProb(rate){const lam=Math.max(0,rate*(S.auto.park?S.auto.park.pf:1));
 function renderHrBlock(){
   let html=`<div class="mkt-title">Batter home run<span class="conf lo">low conf</span><span class="note">season HR/game × park factor — the bare-bones model</span></div>`;
   html+=`<p class="hint" style="margin:0 0 8px">Add a batter and their season HR-per-game (e.g. 30 HR over 150 games = 0.20). Model gives the chance of 1+ HR tonight, park-adjusted. Books usually price this as "to hit a home run" (Yes only).</p>`;
-  html+=`<table class="board-t"><tr><th>Batter</th><th>HR/gm</th><th>Side</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
+  html+=`<div class="mkt-scroll"><table class="board-t"><tr><th>Batter</th><th>HR/gm</th><th>Side</th><th>Model</th><th>Sharp</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}</tr>`;
   (S.hrBatters||[]).forEach((bt,idx)=>{
     const hp=hrProb(bt.rate);
     ['y','n'].forEach(side=>{
@@ -742,7 +744,7 @@ function renderHrBlock(){
       html+='</tr>';
     });
   });
-  html+='</table>';
+  html+='</table></div>';
   html+=`<button class="ghost" id="addHr" style="margin-top:8px;font-size:12px;padding:6px 12px">+ Add HR batter</button>`;
   html+=kellyBlock(hrOutcomes());
   return html;
@@ -795,13 +797,26 @@ function renderEdges(m){
   markets(m).forEach(mk=>{if(!mk.batter)collect(mk.outcomes,mk.title);});
   collect(batterOutcomes(),'Batter H+R+RBI');
   collect(hrOutcomes(),'Batter home run');
-  all.sort((a,b)=>(a.src==='sharp'?0:1)-(b.src==='sharp'?0:1)||b.edge-a.edge);
+  all.sort((a,b)=>b.edge-a.edge);
   S.currentEdges=all;
   if(!all.length){$('edgesBody').innerHTML='<p class="edge-empty">No +EV prices over your threshold yet. Add prices to the board below, or lower the edge threshold in Setup.</p>';return;}
-  $('edgesBody').innerHTML=all.slice(0,12).map((e,ix)=>
-    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-mkt">${e.mkt} <span style="color:${e.src==='sharp'?'var(--amber)':'var(--chalk-faint)'}">${e.src}</span></span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
-    `<span class="edge-back"><span class="dollar">$</span><input type="number" class="backstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost backbtn" data-eix="${ix}">Back</button></span></div>`
-  ).join('')+`<p class="hint" style="margin-top:10px"><b style="color:var(--amber)">sharp</b> = your book beats Pinnacle's devigged fair price — the trustworthy signal. <span style="color:var(--chalk-faint)">model</span> = our stats model only (no sharp line on that market) — treat with salt. Change the $ to what you actually bet, then Back to log it.</p>`;
+  const sharp=all.filter(e=>e.src==='sharp'),modelOnly=all.filter(e=>e.src!=='sharp');
+  const rowHtml=e=>{const ix=all.indexOf(e);
+    return `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-mkt">${e.mkt}</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
+    `<span class="edge-back"><span class="dollar">$</span><input type="number" class="backstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost backbtn" data-eix="${ix}">Back</button></span></div>`;};
+  let html='';
+  if(sharp.length){
+    html+=`<p class="hint" style="margin:0 0 6px">${sharp.length} price${sharp.length>1?'s':''} beating the sharp fair line — every one over your ${(minE*100).toFixed(0)}% threshold.</p>`;
+    html+=sharp.map(rowHtml).join('');
+  }else{
+    html+=`<p class="edge-empty">Nothing beating the sharp fair price right now. That's the normal answer most of the time — no bet is a fine result.</p>`;
+  }
+  if(modelOnly.length){
+    html+=`<details style="margin-top:12px"><summary>${modelOnly.length} model-only edge${modelOnly.length>1?'s':''} (no sharp line on those markets — usually the model being wrong)</summary>`+
+      modelOnly.map(rowHtml).join('')+
+      `<p class="hint">These have no Pinnacle/Betfair price to check against, so the number comes from our stats model alone. Big percentages here are almost always model error, not value.</p></details>`;
+  }
+  $('edgesBody').innerHTML=html;
   $('edgesBody').querySelectorAll('.backbtn').forEach(btn=>btn.onclick=()=>{
     const e=S.currentEdges[+btn.dataset.eix];
     const stake=Number($('edgesBody').querySelector(`.backstake[data-eix="${btn.dataset.eix}"]`).value)||0;
