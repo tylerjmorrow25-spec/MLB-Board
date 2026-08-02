@@ -551,6 +551,9 @@ function model(){
     if(d===0)tie+=pr;else if(d===1)hBy1+=pr;else if(d>=2)hBy2+=pr;else if(d===-1)aBy1+=pr;else aBy2+=pr;}
   const sc=1/(1-tie);hBy1*=sc;hBy2*=sc;aBy1*=sc;aBy2*=sc;
   const shift=hBy2*0.10;hBy2-=shift;hBy1+=shift;
+  // calibrate the run-line the same way as H2H: shrink each cover toward 50%.
+  // home -1.5 pairs with away +1.5; away -1.5 pairs with home +1.5.
+  const hCoverC=calibrate(hBy2), aCoverC=calibrate(aBy2);
 
   const totLam=rH+rA;
   const h5=((i.hRs+i.aSpEra*UNEARNED)/2)*env*(5/9), a5=((i.aRs+i.hSpEra*UNEARNED)/2)*env*(5/9);
@@ -561,7 +564,7 @@ function model(){
   const aK=i.aSpK9*(i.aSpIp/9)*(i.hTeamK/LEAGUE_TEAM_K_PCT);
 
   return {pHome,pAway:1-pHome,rH,rA,env,totLam,lam5,lam3,
-    rl:{hCover:hBy2,hPlus:hBy2+hBy1+aBy1,aCover:aBy2,aPlus:aBy2+aBy1+hBy1},
+    rl:{hCover:hCoverC,hPlus:1-aCoverC,aCover:aCoverC,aPlus:1-hCoverC},
     kExp:{home:{name:i.hSpName,lam:hK},away:{name:i.aSpName,lam:aK}},
     workings:{hAllow,aAllow,pRaw,manualSlid,autoSlid}};
 }
