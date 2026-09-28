@@ -24,7 +24,11 @@ h1,h2,h3{font-family:'Saira Condensed',sans-serif;text-transform:uppercase;lette
 header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;border-bottom:2px solid var(--amber);padding-bottom:12px;margin-bottom:20px}
 header h1{font-size:34px;font-weight:700;color:var(--amber);line-height:1}
 header .sub{color:var(--chalk-dim);font-size:13px}
-header .date{margin-left:auto;font-size:13px;color:var(--chalk-faint)}
+header .date{font-size:13px;color:var(--chalk-faint)}
+.sportsw{margin-left:auto;display:flex;gap:0;border:1px solid var(--amber);border-radius:6px;overflow:hidden}
+.sportsw .sw-btn{background:transparent;color:var(--amber);border:none;border-radius:0;padding:6px 16px;font-size:14px;cursor:pointer;font-family:'Saira Condensed',sans-serif;text-transform:uppercase;letter-spacing:.06em}
+.sportsw .sw-btn.active{background:var(--amber);color:#231604}
+#nflPlayerAdd{width:100%}
 .card{background:var(--felt);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
 .card h2{font-size:15px;font-weight:600;color:var(--amber);margin-bottom:12px;letter-spacing:.09em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .card h2 .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:none;letter-spacing:0;color:var(--chalk-faint);border:1px solid var(--line);border-radius:3px;padding:1px 6px;font-weight:400}
@@ -118,10 +122,15 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
 
 <header>
   <h1>The Board</h1>
-  <div class="sub">MLB expected-value model · decimal odds · AUD</div>
+  <div class="sub" id="hdrSub">MLB expected-value model · decimal odds · AUD</div>
+  <div class="sportsw" id="sportSw">
+    <button class="sw-btn active" data-sport="mlb">MLB</button>
+    <button class="sw-btn" data-sport="nfl">NFL</button>
+  </div>
   <div class="date mono" id="hdrDate"></div>
 </header>
 
+<div id="mlbView">
 <div class="card" id="edges">
   <h2>Tonight's edges <span class="tag">your books vs Pinnacle's fair price · a shortlist, not tips</span></h2>
   <div id="edgesBody"><p class="edge-empty">Load a game and add some prices — anything the model rates as +EV shows here, biggest edge first. Always sanity-check before you back it.</p></div>
@@ -209,6 +218,46 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
   <h2>Edge board</h2>
   <div id="boardBody"><p class="hint">Pick a game to build the board.</p></div>
 </div>
+</div><!-- /mlbView -->
+
+<div id="nflView" class="hidden">
+  <div class="card" id="nflEdges">
+    <h2>Anytime TD edges <span class="tag">your books vs Pinnacle's de-vigged price · a shortlist, not tips</span></h2>
+    <div id="nflEdgesBody"><p class="edge-empty">Load a game, add the players you're eyeing, and fetch. Any book paying over the fair price shows here, biggest edge first.</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Game <span class="tag">NFL · anytime touchdown scorer</span></h2>
+    <div class="row">
+      <div style="max-width:160px"><button id="nflLoad">Load games</button></div>
+      <div style="max-width:220px"><label>Pinnacle margin (de-vig)</label>
+        <select id="nflMargin">
+          <option value="1.15">1.15 (light)</option>
+          <option value="1.20" selected>1.20 (typical)</option>
+          <option value="1.25">1.25 (heavy)</option>
+        </select></div>
+      <div style="flex:1"><label>Implied TD scorers (sanity)</label><input type="text" id="nflImpliedN" value="—" readonly></div>
+    </div>
+    <div id="nflGames"></div>
+    <div class="err hidden" id="nflErr"></div>
+  </div>
+
+  <div class="card">
+    <h2>Players <span class="tag">add the scorers you want to price</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <div style="flex:2"><input type="text" id="nflPlayerAdd" placeholder="Type a player name, e.g. Saquon Barkley"></div>
+      <div style="max-width:120px"><button class="ghost" id="nflAddBtn">+ Add</button></div>
+      <div style="max-width:150px"><button id="nflFetch" disabled>Fetch TD odds</button></div>
+      <div style="max-width:130px"><button class="ghost" id="nflClear">Clear</button></div>
+    </div>
+    <p class="hint" id="nflStatus">Add players first, then fetch — the feed prices come back and match to your rows by name. Names not matched leave a blank you can type into. Anytime TD is one-sided (Yes only), so the fair price is Pinnacle with an assumed margin stripped out — an estimate, not gospel.</p>
+  </div>
+
+  <div class="card board">
+    <h2>TD board</h2>
+    <div id="nflBoardBody"><p class="hint">Load a game and add players to build the board.</p></div>
+  </div>
+</div><!-- /nflView -->
 
 <footer>
   Model probabilities are estimates from season-level numbers — they don't know tonight's lineup card until you tell them, and where the model disagrees with a sharp book it's often the model missing something. Treat edges under your flag threshold as noise, line-shop hard (the best-price highlight is the most reliable edge here), stake to quarter-Kelly at most. If it stops being fun: <a href="https://www.gamblinghelponline.org.au" style="color:var(--chalk-dim)">Gambling Help Online</a>, 1800 858 858, free 24/7.
@@ -1029,6 +1078,153 @@ async function settleResults(){
 }
 
 loadSlate();
+
+/* ===================== NFL — ANYTIME TD ===================== */
+const NFL={game:null,games:[],players:[],odds:{},sharp:{},eventId:null};
+/* players: [{name}]; odds keyed by player index -> {bookkey:dec}; sharp[idx]=pinnacle dec */
+
+// sport switcher
+document.querySelectorAll('#sportSw .sw-btn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#sportSw .sw-btn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const sport=b.dataset.sport;
+  $('mlbView').classList.toggle('hidden',sport!=='mlb');
+  $('nflView').classList.toggle('hidden',sport!=='nfl');
+  $('hdrSub').textContent = sport==='nfl'
+    ? 'NFL anytime TD · line-shop + Pinnacle de-vig · decimal odds · AUD'
+    : 'MLB expected-value model · decimal odds · AUD';
+});
+
+function nflErr(m){$('nflErr').textContent=m;$('nflErr').classList.remove('hidden');}
+function nflMarginMult(){return Number($('nflMargin').value)||1.20;}
+
+// load NFL games (free events endpoint — no quota)
+$('nflLoad').onclick=async()=>{
+  const proxy=$('proxyUrl').value.trim();$('nflErr').classList.add('hidden');
+  if(!proxy){nflErr('Add your proxy URL in Setup first.');return;}
+  $('nflGames').innerHTML='<span class="hint">Loading…</span>';
+  try{
+    const games=await fetch(`${proxy}?path=events&sport=americanfootball_nfl`).then(r=>r.json());
+    if(games.error)throw new Error(games.error);
+    if(!Array.isArray(games)||!games.length){$('nflGames').innerHTML='<span class="hint">No upcoming NFL games in the feed.</span>';return;}
+    NFL.games=games;$('nflGames').innerHTML='';
+    games.slice(0,32).forEach(g=>{
+      const b=document.createElement('button');b.className='chip';
+      const t=new Date(g.commence_time).toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'});
+      b.innerHTML=`${g.away_team} @ ${g.home_team}<span class="t">${t}</span>`;
+      b.onclick=()=>{document.querySelectorAll('#nflGames .chip').forEach(c=>c.classList.remove('sel'));b.classList.add('sel');
+        NFL.game=g;NFL.eventId=g.id;NFL.odds={};NFL.sharp={};$('nflFetch').disabled=false;
+        $('nflStatus').textContent=`${g.away_team} @ ${g.home_team} selected. Add players, then Fetch TD odds.`;renderNflBoard();};
+      $('nflGames').appendChild(b);
+    });
+  }catch(e){nflErr('Could not load games: '+e.message);$('nflGames').innerHTML='';}
+};
+
+// add / clear players
+function nflAddPlayer(name){name=(name||'').trim();if(!name)return;
+  if(NFL.players.some(p=>p.name.toLowerCase()===name.toLowerCase()))return;
+  NFL.players.push({name});renderNflBoard();}
+$('nflAddBtn').onclick=()=>{nflAddPlayer($('nflPlayerAdd').value);$('nflPlayerAdd').value='';};
+$('nflPlayerAdd').addEventListener('keydown',e=>{if(e.key==='Enter'){nflAddPlayer($('nflPlayerAdd').value);$('nflPlayerAdd').value='';}});
+$('nflClear').onclick=()=>{NFL.odds={};NFL.sharp={};renderNflBoard();};
+
+// fetch anytime TD odds for the selected game
+$('nflFetch').onclick=async()=>{
+  const proxy=$('proxyUrl').value.trim();$('nflErr').classList.add('hidden');
+  if(!proxy){nflErr('Add your proxy URL in Setup.');return;}
+  if(!NFL.eventId){nflErr('Pick a game first.');return;}
+  if(!NFL.players.length){nflErr('Add at least one player first.');return;}
+  $('nflStatus').textContent='Fetching anytime TD prices…';
+  try{
+    const ev=await fetch(`${proxy}?path=event&sport=americanfootball_nfl&eventId=${NFL.eventId}&markets=player_anytime_td`).then(x=>x.json());
+    if(ev.error)throw new Error(ev.error);
+    const got=ingestNflTD(ev);
+    $('nflStatus').textContent=got?`Loaded ${got} prices. Blanks = book didn't price that player, or name didn't match — type them in.`:'Feed returned no anytime-TD prices for this game yet (often posts a day or two out).';
+    renderNflBoard();
+  }catch(e){nflErr('Fetch failed: '+e.message);}
+};
+
+// pull all Pinnacle Yes prices in the game (for the de-vig booksum), plus match to player rows
+function ingestNflTD(ev){
+  let count=0;
+  // gather ALL pinnacle yes-prices in the game for the booksum
+  const pinnAll=[];
+  (ev.bookmakers||[]).forEach(bm=>{
+    const isSharp=SHARP_KEYS.indexOf(bm.key)>=0, b=bookOf(bm.key);
+    if(!isSharp&&!b)return;
+    (bm.markets||[]).forEach(mkt=>{
+      if(mkt.key!=='player_anytime_td')return;
+      (mkt.outcomes||[]).forEach(o=>{
+        // anytime TD is one-sided; description holds the player, name is "Yes"
+        const nm=o.description||o.name||'';
+        const isYes=(o.name==='Yes'||!o.point);
+        if(!isYes)return;
+        if(isSharp&&bm.key==='pinnacle')pinnAll.push(o.price);
+        // match to a player row
+        NFL.players.forEach((p,idx)=>{
+          if(matchName(nm,p.name)){
+            if(isSharp&&bm.key==='pinnacle'){NFL.sharp[idx]=o.price;}
+            else if(b){NFL.odds[idx]=NFL.odds[idx]||{};NFL.odds[idx][b.key]=o.price;count++;}
+          }
+        });
+      });
+    });
+  });
+  NFL.pinnBooksum=pinnAll.reduce((a,d)=>a+(d>1?1/d:0),0);
+  const impliedN=NFL.pinnBooksum? NFL.pinnBooksum/nflMarginMult():0;
+  $('nflImpliedN').value = impliedN? impliedN.toFixed(2)+' scorers' : '—';
+  return count;
+}
+
+// fair probability for a player from Pinnacle, margin-stripped
+function nflFairP(idx){const d=NFL.sharp[idx];if(!(d>1))return null;return (1/d)/nflMarginMult();}
+
+function renderNflBoard(){
+  if(!NFL.players.length){$('nflBoardBody').innerHTML='<p class="hint">Add players above to build the board.</p>';renderNflEdges();return;}
+  let html=`<div class="mkt-scroll"><table class="board-t"><tr><th>Player</th><th>Pinnacle</th><th>Fair est.</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}<th></th></tr>`;
+  NFL.players.forEach((p,idx)=>{
+    const fairP=nflFairP(idx), pinn=NFL.sharp[idx];
+    const row=NFL.odds[idx]||{}, prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1), best=prices.length?Math.max(...prices):null;
+    html+=`<tr><td class="outc">${p.name}</td>`;
+    html+=pinn?`<td class="mprob" style="color:var(--chalk-dim)">$${Number(pinn).toFixed(2)}</td>`:`<td class="mprob"><small>—</small></td>`;
+    html+=fairP?`<td class="mprob" style="color:var(--amber)">${(fairP*100).toFixed(1)}%<small>$${(1/fairP).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
+    BOOKS.forEach(b=>{
+      const v=row[b.key]||'',ev=(v>1&&fairP)?(fairP*v-1):null,isBest=best!==null&&v===best;
+      html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-nfloid="${idx}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
+        (ev!==null?`<span class="ev ${ev>=0?'pos':'neg'}">${ev>=0?'+':''}${(ev*100).toFixed(1)}%</span>`:'<span class="ev">&nbsp;</span>')+`</td>`;
+    });
+    html+=`<td><button class="ghost nflDel" data-idx="${idx}" style="padding:3px 8px;font-size:11px">✕</button></td>`;
+    html+='</tr>';
+  });
+  html+='</table></div>';
+  html+=`<p class="hint">Fair est. = Pinnacle's Yes price with the assumed margin (${nflMarginMult().toFixed(2)}) stripped out. On anytime TD this market is high-margin, so beating Pinnacle's <i>raw</i> price usually isn't enough — you need to beat the fair estimate. Green = a book paying over fair.</p>`;
+  $('nflBoardBody').innerHTML=html;
+  $('nflBoardBody').querySelectorAll('input[data-nfloid]').forEach(el=>el.addEventListener('change',()=>{
+    const idx=+el.dataset.nfloid,bk=el.dataset.book;NFL.odds[idx]=NFL.odds[idx]||{};NFL.odds[idx][bk]=Number(el.value)||null;renderNflBoard();}));
+  $('nflBoardBody').querySelectorAll('.nflDel').forEach(b=>b.onclick=()=>{const i=+b.dataset.idx;NFL.players.splice(i,1);
+    // reindex odds/sharp
+    const no={},ns={};NFL.players.forEach((_,ni)=>{});NFL.odds={};NFL.sharp={};renderNflBoard();$('nflStatus').textContent='Player removed — re-fetch to repopulate prices.';});
+  renderNflEdges();
+}
+
+function renderNflEdges(){
+  const bank=Number($('bankroll').value)||0,kf=Number($('kellyFrac').value),minE=Number($('minEdge').value);
+  const all=[];
+  NFL.players.forEach((p,idx)=>{
+    const fairP=nflFairP(idx);if(!fairP)return;
+    const row=NFL.odds[idx]||{},prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1);
+    if(!prices.length)return;
+    const best=Math.max(...prices),edge=fairP*best-1;
+    if(edge>minE){const kFull=edge/(best-1),stake=bank*kFull*kf,book=BOOKS.find(b=>row[b.key]===best).name;
+      all.push({edge,desc:p.name+' anytime TD',price:best,book,stake});}
+  });
+  all.sort((a,b)=>b.edge-a.edge);
+  if(!all.length){$('nflEdgesBody').innerHTML='<p class="edge-empty">No book paying over the fair price yet. On TD props that\'s the usual answer — the market\'s tight. No bet is fine.</p>';return;}
+  $('nflEdgesBody').innerHTML=all.map(e=>
+    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span><span class="edge-stake">$${e.stake.toFixed(0)}</span></div>`
+  ).join('')+`<p class="hint" style="margin-top:10px">Fair price is an estimate (one-sided de-vig), so treat these as a shortlist to eyeball, not locks. Stake shown is quarter-Kelly on your bankroll.</p>`;
+}
+$('nflMargin').addEventListener('change',()=>{const n=NFL.pinnBooksum?NFL.pinnBooksum/nflMarginMult():0;$('nflImpliedN').value=n?n.toFixed(2)+' scorers':'—';renderNflBoard();});
 </script>
 </body>
 </html>
