@@ -248,7 +248,8 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
     <div class="row" style="margin-bottom:10px">
       <div style="flex:2"><input type="text" id="nflPlayerAdd" placeholder="Type a player name, e.g. Saquon Barkley"></div>
       <div style="max-width:120px"><button class="ghost" id="nflAddBtn">+ Add</button></div>
-      <div style="max-width:150px"><button id="nflFetch" disabled>Fetch TD odds</button></div>
+      <div style="max-width:170px"><button id="nflLoadAll" disabled>Load all scorers</button></div>
+      <div style="max-width:150px"><button class="ghost" id="nflFetch" disabled>Refetch odds</button></div>
       <div style="max-width:130px"><button class="ghost" id="nflClear">Clear</button></div>
     </div>
     <p class="hint" id="nflStatus">Add players first, then fetch — the feed prices come back and match to your rows by name. Names not matched leave a blank you can type into. Anytime TD is one-sided (Yes only), so the fair price strips the vig measured across Pinnacle's whole board — still an estimate, but self-calibrated, not a guessed margin.</p>
@@ -1114,8 +1115,8 @@ $('nflLoad').onclick=async()=>{
       const t=new Date(g.commence_time).toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'});
       b.innerHTML=`${g.away_team} @ ${g.home_team}<span class="t">${t}</span>`;
       b.onclick=()=>{document.querySelectorAll('#nflGames .chip').forEach(c=>c.classList.remove('sel'));b.classList.add('sel');
-        NFL.game=g;NFL.eventId=g.id;NFL.odds={};NFL.sharp={};$('nflFetch').disabled=false;
-        $('nflStatus').textContent=`${g.away_team} @ ${g.home_team} selected. Add players, then Fetch TD odds.`;renderNflBoard();};
+        NFL.game=g;NFL.eventId=g.id;NFL.odds={};NFL.sharp={};$('nflFetch').disabled=false;$('nflLoadAll').disabled=false;
+        $('nflStatus').textContent=`${g.away_team} @ ${g.home_team} selected. Hit "Load all scorers" — no typing needed.`;renderNflBoard();};
       $('nflGames').appendChild(b);
     });
   }catch(e){nflErr('Could not load games: '+e.message);$('nflGames').innerHTML='';}
@@ -1130,17 +1131,47 @@ $('nflPlayerAdd').addEventListener('keydown',e=>{if(e.key==='Enter'){nflAddPlaye
 $('nflClear').onclick=()=>{NFL.odds={};NFL.sharp={};renderNflBoard();};
 
 // fetch anytime TD odds for the selected game
-$('nflFetch').onclick=async()=>{
-  const proxy=$('proxyUrl').value.trim();$('nflErr').classList.add('hidden');
-  if(!proxy){nflErr('Add your proxy URL in Setup.');return;}
-  if(!NFL.eventId){nflErr('Pick a game first.');return;}
-  if(!NFL.players.length){nflErr('Add at least one player first.');return;}
-  $('nflStatus').textContent='Fetching anytime TD prices…';
+async function nflFetchMarket(){
+  const proxy=$('proxyUrl').value.trim();
+  if(!proxy){nflErr('Add your proxy URL in Setup.');return null;}
+  if(!NFL.eventId){nflErr('Pick a game first.');return null;}
+  const ev=await fetch(`${proxy}?path=event&sport=americanfootball_nfl&eventId=${NFL.eventId}&markets=player_anytime_td`).then(x=>x.json());
+  if(ev.error)throw new Error(ev.error);
+  return ev;
+}
+// pull every distinct player the feed prices and drop them onto the board — no typing
+function nflAddAllFromFeed(ev){
+  const seen=new Set(NFL.players.map(p=>p.name.toLowerCase().split(' ').pop()));
+  (ev.bookmakers||[]).forEach(bm=>{
+    (bm.markets||[]).forEach(mkt=>{if(mkt.key!=='player_anytime_td')return;
+      (mkt.outcomes||[]).forEach(o=>{
+        if(o.name==='No')return;
+        const nm=(o.name==='Yes'?o.description:(o.description||o.name))||'';
+        if(!nm)return;const last=nm.toLowerCase().split(' ').pop();
+        if(seen.has(last))return;seen.add(last);NFL.players.push({name:nm});
+      });
+    });
+  });
+}
+$('nflLoadAll').onclick=async()=>{
+  $('nflErr').classList.add('hidden');$('nflStatus').textContent='Loading every scorer the books price…';
   try{
-    const ev=await fetch(`${proxy}?path=event&sport=americanfootball_nfl&eventId=${NFL.eventId}&markets=player_anytime_td`).then(x=>x.json());
-    if(ev.error)throw new Error(ev.error);
+    const ev=await nflFetchMarket();if(!ev)return;
+    const before=NFL.players.length;
+    nflAddAllFromFeed(ev);
     const got=ingestNflTD(ev);
-    $('nflStatus').textContent=got?`Loaded ${got} prices. Blanks = book didn't price that player, or name didn't match — type them in.`:'Feed returned no anytime-TD prices for this game yet (often posts a day or two out).';
+    $('nflStatus').textContent=`Loaded ${NFL.players.length} players, ${got} prices. Delete any you don't want with the ✕.`;
+    renderNflBoard();
+  }catch(e){nflErr('Load failed: '+e.message);}
+};
+$('nflFetch').onclick=async()=>{
+  $('nflErr').classList.add('hidden');
+  if(!NFL.players.length){nflErr('Add players or hit "Load all scorers" first.');return;}
+  $('nflStatus').textContent='Refetching anytime TD prices…';
+  try{
+    const ev=await nflFetchMarket();if(!ev)return;
+    const got=ingestNflTD(ev);
+    $('nflStatus').textContent=got?`Refreshed ${got} prices.`:'Feed returned no anytime-TD prices for this game yet (often posts a day or two out).';
     renderNflBoard();
   }catch(e){nflErr('Fetch failed: '+e.message);}
 };
