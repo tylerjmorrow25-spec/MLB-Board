@@ -1155,10 +1155,12 @@ function ingestNflTD(ev){
     (bm.markets||[]).forEach(mkt=>{
       if(mkt.key!=='player_anytime_td')return;
       (mkt.outcomes||[]).forEach(o=>{
-        // anytime TD is one-sided; description holds the player, name is "Yes"
-        const nm=o.description||o.name||'';
-        const isYes=(o.name==='Yes'||!o.point);
-        if(!isYes)return;
+        // anytime TD: "Yes"/"No" per player with the player in `description`
+        // (some feeds put the player in `name` with no Yes/No). Count ONLY the
+        // Yes side — including the "No" outcome doubles the booksum and can pull
+        // the wrong price for a player.
+        if(o.name==='No')return;                 // skip the No side entirely
+        const nm=(o.name==='Yes'?o.description:(o.description||o.name))||'';
         if(isSharp&&bm.key==='pinnacle')pinnAll.push(o.price);
         // match to a player row
         NFL.players.forEach((p,idx)=>{
@@ -1171,8 +1173,10 @@ function ingestNflTD(ev){
     });
   });
   NFL.pinnBooksum=pinnAll.reduce((a,d)=>a+(d>1?1/d:0),0);
+  NFL.pinnCount=pinnAll.length;
   const impliedN=NFL.pinnBooksum? NFL.pinnBooksum/nflMarginMult():0;
-  $('nflImpliedN').value = impliedN? impliedN.toFixed(2)+' scorers' : '—';
+  // healthy: ~3.5-5.5 scorers off a full board. Way over => still double-counting or thin board.
+  $('nflImpliedN').value = impliedN? `${impliedN.toFixed(1)} (${NFL.pinnCount} players)` : '—';
   return count;
 }
 
@@ -1216,13 +1220,36 @@ function renderNflEdges(){
     if(!prices.length)return;
     const best=Math.max(...prices),edge=fairP*best-1;
     if(edge>minE){const kFull=edge/(best-1),stake=bank*kFull*kf,book=BOOKS.find(b=>row[b.key]===best).name;
-      all.push({edge,desc:p.name+' anytime TD',price:best,book,stake});}
+      all.push({edge,desc:p.name+' anytime TD',price:best,book,stake,player:p.name});}
   });
   all.sort((a,b)=>b.edge-a.edge);
+  NFL.currentEdges=all;
   if(!all.length){$('nflEdgesBody').innerHTML='<p class="edge-empty">No book paying over the fair price yet. On TD props that\'s the usual answer — the market\'s tight. No bet is fine.</p>';return;}
-  $('nflEdgesBody').innerHTML=all.map(e=>
-    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span><span class="edge-stake">$${e.stake.toFixed(0)}</span></div>`
-  ).join('')+`<p class="hint" style="margin-top:10px">Fair price is an estimate (one-sided de-vig), so treat these as a shortlist to eyeball, not locks. Stake shown is quarter-Kelly on your bankroll.</p>`;
+  $('nflEdgesBody').innerHTML=all.map((e,ix)=>
+    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
+    `<span class="edge-back"><span class="dollar">$</span><input type="number" class="nflstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost nflbackbtn" data-eix="${ix}">Back</button></span></div>`
+  ).join('')+`<p class="hint" style="margin-top:10px">Fair price is an estimate (one-sided de-vig), so treat these as a shortlist to eyeball, not locks. Change the $ to what you actually bet, then Back to log it. <b>NFL bets settle by hand</b> for now — mark the Result column in your sheet after the game.</p>`;
+  $('nflEdgesBody').querySelectorAll('.nflbackbtn').forEach(btn=>btn.onclick=()=>{
+    const e=NFL.currentEdges[+btn.dataset.eix];
+    const stake=Number($('nflEdgesBody').querySelector(`.nflstake[data-eix="${btn.dataset.eix}"]`).value)||0;
+    if(stake<=0){nflErr('Enter a stake above $0 to log the bet.');return;}
+    logNflBet(e.desc,e.price,e.book,stake,e.player);
+  });
+}
+
+async function logNflBet(label,price,book,stake,player){
+  const proxy=$('proxyUrl').value.trim();$('nflErr').classList.add('hidden');
+  if(!proxy){nflErr('No proxy URL set.');return;}
+  const g=NFL.game,date=new Date(g.commence_time).toISOString().slice(0,10);
+  const matchup=`${g.away_team} @ ${g.home_team}`;
+  // same schema as MLB bets. SettleType 'nfl_td' isn't graded by auto-settle -> stays blank for manual.
+  // Date, Matchup, GamePk, Market, Selection, SettleType, SettleSide, Line, Player, Odds, Book, Stake, Result, Return, PnL
+  const rowArr=[date,matchup,'',`Anytime TD`,label,'nfl_td','yes','',player||'',Number(price).toFixed(2),book,Number(stake).toFixed(2),'','',''];
+  try{
+    const r=await fetch(proxy,{method:'POST',body:JSON.stringify({path:'bet',rows:[rowArr]})}).then(x=>x.json());
+    if(r.error)throw new Error(r.error);
+    $('nflStatus').textContent=`Bet logged: ${label} $${Number(stake).toFixed(0)} @ $${Number(price).toFixed(2)} (${book}). Mark the Result in your sheet after the game.`;
+  }catch(e){nflErr('Bet log failed: '+e.message);}
 }
 $('nflMargin').addEventListener('change',()=>{const n=NFL.pinnBooksum?NFL.pinnBooksum/nflMarginMult():0;$('nflImpliedN').value=n?n.toFixed(2)+' scorers':'—';renderNflBoard();});
 </script>
