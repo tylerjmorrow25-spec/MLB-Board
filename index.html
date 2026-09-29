@@ -230,13 +230,14 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
     <h2>Game <span class="tag">NFL · anytime touchdown scorer</span></h2>
     <div class="row">
       <div style="max-width:160px"><button id="nflLoad">Load games</button></div>
-      <div style="max-width:220px"><label>Pinnacle margin (de-vig)</label>
-        <select id="nflMargin">
-          <option value="1.15">1.15 (light)</option>
-          <option value="1.20" selected>1.20 (typical)</option>
-          <option value="1.25">1.25 (heavy)</option>
+      <div style="max-width:220px"><label>Expected TD scorers</label>
+        <select id="nflScorers">
+          <option value="4.0">4.0 (low-scoring)</option>
+          <option value="4.5" selected>4.5 (typical)</option>
+          <option value="5.0">5.0 (shootout)</option>
+          <option value="5.5">5.5 (high total)</option>
         </select></div>
-      <div style="flex:1"><label>Implied TD scorers (sanity)</label><input type="text" id="nflImpliedN" value="—" readonly></div>
+      <div style="flex:1"><label>Pinnacle vig (measured)</label><input type="text" id="nflVig" value="—" readonly></div>
     </div>
     <div id="nflGames"></div>
     <div class="err hidden" id="nflErr"></div>
@@ -250,7 +251,7 @@ details summary{cursor:pointer;color:var(--amber);font-family:'Saira Condensed',
       <div style="max-width:150px"><button id="nflFetch" disabled>Fetch TD odds</button></div>
       <div style="max-width:130px"><button class="ghost" id="nflClear">Clear</button></div>
     </div>
-    <p class="hint" id="nflStatus">Add players first, then fetch — the feed prices come back and match to your rows by name. Names not matched leave a blank you can type into. Anytime TD is one-sided (Yes only), so the fair price is Pinnacle with an assumed margin stripped out — an estimate, not gospel.</p>
+    <p class="hint" id="nflStatus">Add players first, then fetch — the feed prices come back and match to your rows by name. Names not matched leave a blank you can type into. Anytime TD is one-sided (Yes only), so the fair price strips the vig measured across Pinnacle's whole board — still an estimate, but self-calibrated, not a guessed margin.</p>
   </div>
 
   <div class="card board">
@@ -1096,7 +1097,7 @@ document.querySelectorAll('#sportSw .sw-btn').forEach(b=>b.onclick=()=>{
 });
 
 function nflErr(m){$('nflErr').textContent=m;$('nflErr').classList.remove('hidden');}
-function nflMarginMult(){return Number($('nflMargin').value)||1.20;}
+function nflScorers(){return Number($('nflScorers').value)||4.5;}
 
 // load NFL games (free events endpoint — no quota)
 $('nflLoad').onclick=async()=>{
@@ -1174,14 +1175,22 @@ function ingestNflTD(ev){
   });
   NFL.pinnBooksum=pinnAll.reduce((a,d)=>a+(d>1?1/d:0),0);
   NFL.pinnCount=pinnAll.length;
-  const impliedN=NFL.pinnBooksum? NFL.pinnBooksum/nflMarginMult():0;
-  // healthy: ~3.5-5.5 scorers off a full board. Way over => still double-counting or thin board.
-  $('nflImpliedN').value = impliedN? `${impliedN.toFixed(1)} (${NFL.pinnCount} players)` : '—';
+  // booksum = sum of all Pinnacle Yes probabilities. It SHOULD equal the expected
+  // number of TD scorers; anything over that is the vig. vig% = booksum/N - 1.
+  const vig=NFL.pinnBooksum? (NFL.pinnBooksum/nflScorers()-1) : 0;
+  $('nflVig').value = NFL.pinnBooksum? `${(vig*100).toFixed(0)}%  (booksum ${NFL.pinnBooksum.toFixed(1)}, ${NFL.pinnCount} players)` : '—';
   return count;
 }
 
 // fair probability for a player from Pinnacle, margin-stripped
-function nflFairP(idx){const d=NFL.sharp[idx];if(!(d>1))return null;return (1/d)/nflMarginMult();}
+// Booksum-normalised fair probability: strip the vig measured from the whole
+// board. fair_i = pinnImplied_i / booksum * N  (N = expected TD scorers).
+// This self-calibrates to the actual overround instead of guessing a margin.
+function nflFairP(idx){
+  const d=NFL.sharp[idx];if(!(d>1))return null;
+  if(!(NFL.pinnBooksum>0))return null;
+  return (1/d)/NFL.pinnBooksum*nflScorers();
+}
 
 // field consensus: median of the books' prices, and how much the best beats it
 function nflField(idx){
@@ -1285,7 +1294,10 @@ async function logNflBet(label,price,book,stake,player){
     $('nflStatus').textContent=`Bet logged: ${label} $${Number(stake).toFixed(0)} @ $${Number(price).toFixed(2)} (${book}). Mark the Result in your sheet after the game.`;
   }catch(e){nflErr('Bet log failed: '+e.message);}
 }
-$('nflMargin').addEventListener('change',()=>{const n=NFL.pinnBooksum?NFL.pinnBooksum/nflMarginMult():0;$('nflImpliedN').value=n?n.toFixed(2)+' scorers':'—';renderNflBoard();});
+$('nflScorers').addEventListener('change',()=>{
+  const vig=NFL.pinnBooksum?(NFL.pinnBooksum/nflScorers()-1):0;
+  $('nflVig').value=NFL.pinnBooksum?`${(vig*100).toFixed(0)}%  (booksum ${NFL.pinnBooksum.toFixed(1)}, ${NFL.pinnCount} players)`:'—';
+  renderNflBoard();});
 </script>
 </body>
 </html>
