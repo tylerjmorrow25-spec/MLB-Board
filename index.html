@@ -1183,15 +1183,25 @@ function ingestNflTD(ev){
 // fair probability for a player from Pinnacle, margin-stripped
 function nflFairP(idx){const d=NFL.sharp[idx];if(!(d>1))return null;return (1/d)/nflMarginMult();}
 
+// field consensus: median of the books' prices, and how much the best beats it
+function nflField(idx){
+  const row=NFL.odds[idx]||{}, prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1).sort((a,b)=>a-b);
+  if(prices.length<2)return null;
+  const mid=Math.floor(prices.length/2);
+  const median=prices.length%2?prices[mid]:(prices[mid-1]+prices[mid])/2;
+  const best=prices[prices.length-1];
+  return {median,best,n:prices.length,premium:best/median-1}; // premium = extra payout vs typical book
+}
 function renderNflBoard(){
   if(!NFL.players.length){$('nflBoardBody').innerHTML='<p class="hint">Add players above to build the board.</p>';renderNflEdges();return;}
-  let html=`<div class="mkt-scroll"><table class="board-t"><tr><th>Player</th><th>Pinnacle</th><th>Fair est.</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}<th></th></tr>`;
+  let html=`<div class="mkt-scroll"><table class="board-t"><tr><th>Player</th><th>Pinnacle</th><th>Fair est.</th><th>Field</th>${BOOKS.map(b=>`<th>${b.name}</th>`).join('')}<th></th></tr>`;
   NFL.players.forEach((p,idx)=>{
-    const fairP=nflFairP(idx), pinn=NFL.sharp[idx];
+    const fairP=nflFairP(idx), pinn=NFL.sharp[idx], fld=nflField(idx);
     const row=NFL.odds[idx]||{}, prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1), best=prices.length?Math.max(...prices):null;
     html+=`<tr><td class="outc">${p.name}</td>`;
     html+=pinn?`<td class="mprob" style="color:var(--chalk-dim)">$${Number(pinn).toFixed(2)}</td>`:`<td class="mprob"><small>—</small></td>`;
     html+=fairP?`<td class="mprob" style="color:var(--amber)">${(fairP*100).toFixed(1)}%<small>$${(1/fairP).toFixed(2)}</small></td>`:`<td class="mprob"><small>—</small></td>`;
+    html+=fld?`<td class="mprob" style="color:var(--chalk-dim)">$${fld.median.toFixed(2)}<small class="${fld.premium>=0.05?'':''}" style="color:${fld.premium>=0.05?'var(--pos)':'var(--chalk-faint)'}">best +${(fld.premium*100).toFixed(0)}%</small></td>`:`<td class="mprob"><small>—</small></td>`;
     BOOKS.forEach(b=>{
       const v=row[b.key]||'',ev=(v>1&&fairP)?(fairP*v-1):null,isBest=best!==null&&v===best;
       html+=`<td class="cell${isBest?' best':''}"><input type="number" step="0.01" min="1" data-nfloid="${idx}" data-book="${b.key}" value="${v?Number(v).toFixed(2):''}" placeholder="—">`+
@@ -1201,7 +1211,7 @@ function renderNflBoard(){
     html+='</tr>';
   });
   html+='</table></div>';
-  html+=`<p class="hint">Fair est. = Pinnacle's Yes price with the assumed margin (${nflMarginMult().toFixed(2)}) stripped out. On anytime TD this market is high-margin, so beating Pinnacle's <i>raw</i> price usually isn't enough — you need to beat the fair estimate. Green = a book paying over fair.</p>`;
+  html+=`<p class="hint"><b>Field</b> = median of your books' prices for that player; "best +X%" is how much extra the top book pays vs the typical one — that's your line-shopping gain, no Pinnacle needed. <b>Fair est.</b> is the Pinnacle de-vig (an estimate; green cell = pays over it). If you're backing a player anyway, take the lit (best) price.</p>`;
   $('nflBoardBody').innerHTML=html;
   $('nflBoardBody').querySelectorAll('input[data-nfloid]').forEach(el=>el.addEventListener('change',()=>{
     const idx=+el.dataset.nfloid,bk=el.dataset.book;NFL.odds[idx]=NFL.odds[idx]||{};NFL.odds[idx][bk]=Number(el.value)||null;renderNflBoard();}));
@@ -1213,27 +1223,51 @@ function renderNflBoard(){
 
 function renderNflEdges(){
   const bank=Number($('bankroll').value)||0,kf=Number($('kellyFrac').value),minE=Number($('minEdge').value);
-  const all=[];
+  const backable=[]; // unified list the Back buttons index into
+  // 1) line-shop gaps: best book vs field median (no Pinnacle needed)
+  const shop=[];
+  NFL.players.forEach((p,idx)=>{
+    const fld=nflField(idx);if(!fld||fld.premium<0.05)return; // only show a meaningful gap
+    const row=NFL.odds[idx]||{},book=BOOKS.find(b=>row[b.key]===fld.best).name;
+    shop.push({player:p.name,price:fld.best,book,premium:fld.premium,median:fld.median});
+  });
+  shop.sort((a,b)=>b.premium-a.premium);
+  // 2) Pinnacle-fair +EV edges
+  const fair=[];
   NFL.players.forEach((p,idx)=>{
     const fairP=nflFairP(idx);if(!fairP)return;
     const row=NFL.odds[idx]||{},prices=BOOKS.map(b=>row[b.key]).filter(v=>v>1);
     if(!prices.length)return;
     const best=Math.max(...prices),edge=fairP*best-1;
     if(edge>minE){const kFull=edge/(best-1),stake=bank*kFull*kf,book=BOOKS.find(b=>row[b.key]===best).name;
-      all.push({edge,desc:p.name+' anytime TD',price:best,book,stake,player:p.name});}
+      fair.push({edge,player:p.name,price:best,book,stake});}
   });
-  all.sort((a,b)=>b.edge-a.edge);
-  NFL.currentEdges=all;
-  if(!all.length){$('nflEdgesBody').innerHTML='<p class="edge-empty">No book paying over the fair price yet. On TD props that\'s the usual answer — the market\'s tight. No bet is fine.</p>';return;}
-  $('nflEdgesBody').innerHTML=all.map((e,ix)=>
-    `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-desc">${e.desc}</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
-    `<span class="edge-back"><span class="dollar">$</span><input type="number" class="nflstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost nflbackbtn" data-eix="${ix}">Back</button></span></div>`
-  ).join('')+`<p class="hint" style="margin-top:10px">Fair price is an estimate (one-sided de-vig), so treat these as a shortlist to eyeball, not locks. Change the $ to what you actually bet, then Back to log it. <b>NFL bets settle by hand</b> for now — mark the Result column in your sheet after the game.</p>`;
+  fair.sort((a,b)=>b.edge-a.edge);
+
+  let html='';
+  // line-shop section
+  if(shop.length){
+    html+=`<p class="hint" style="margin:0 0 6px"><b style="color:var(--pos)">Line-shop gaps</b> — best book vs the field. Take the top price if you're backing the player.</p>`;
+    html+=shop.map(e=>{const ix=backable.push({player:e.player,price:e.price,book:e.book})-1;
+      return `<div class="edge-row"><span class="edge-pct">+${(e.premium*100).toFixed(0)}%</span><span class="edge-desc">${e.player} <span style="color:var(--chalk-faint)">(field $${e.median.toFixed(2)})</span></span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
+        `<span class="edge-back"><span class="dollar">$</span><input type="number" class="nflstake" data-eix="${ix}" value="" min="0" step="5" placeholder="stake" title="stake you actually put on"><button class="ghost nflbackbtn" data-eix="${ix}">Back</button></span></div>`;}).join('');
+  }
+  // Pinnacle-fair section
+  if(fair.length){
+    html+=`<p class="hint" style="margin:${shop.length?'14px':'0'} 0 6px"><b style="color:var(--amber)">Over Pinnacle fair</b> — book pays above the de-vigged estimate (rarer; verify on the app).</p>`;
+    html+=fair.map(e=>{const ix=backable.push({player:e.player,price:e.price,book:e.book})-1;
+      return `<div class="edge-row"><span class="edge-pct">+${(e.edge*100).toFixed(1)}%</span><span class="edge-desc">${e.player} anytime TD</span><span class="edge-price">$${e.price.toFixed(2)} ${e.book}</span>`+
+        `<span class="edge-back"><span class="dollar">$</span><input type="number" class="nflstake" data-eix="${ix}" value="${e.stake.toFixed(0)}" min="0" step="5" title="stake you actually put on"><button class="ghost nflbackbtn" data-eix="${ix}">Back</button></span></div>`;}).join('');
+  }
+  NFL.currentEdges=backable;
+  if(!html){$('nflEdgesBody').innerHTML='<p class="edge-empty">No line-shop gap over 5% and nothing over Pinnacle fair yet. Add more players or books, or it\'s just a tight slate — no bet is fine.</p>';return;}
+  html+=`<p class="hint" style="margin-top:10px">Line-shop % = extra payout vs the typical book (real, no de-vig needed). Pinnacle % = est. +EV (softer signal). <b>NFL bets settle by hand</b> — mark the Result in your sheet after the game.</p>`;
+  $('nflEdgesBody').innerHTML=html;
   $('nflEdgesBody').querySelectorAll('.nflbackbtn').forEach(btn=>btn.onclick=()=>{
     const e=NFL.currentEdges[+btn.dataset.eix];
     const stake=Number($('nflEdgesBody').querySelector(`.nflstake[data-eix="${btn.dataset.eix}"]`).value)||0;
     if(stake<=0){nflErr('Enter a stake above $0 to log the bet.');return;}
-    logNflBet(e.desc,e.price,e.book,stake,e.player);
+    logNflBet(e.player+' anytime TD',e.price,e.book,stake,e.player);
   });
 }
 
